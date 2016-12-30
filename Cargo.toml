@@ -1,0 +1,6 @@
+[package]
+name = "graphreduction"
+version = "0.1.0"
+authors = ["bollu <siddu.druid@gmail.com>"]
+
+[dependencies]
