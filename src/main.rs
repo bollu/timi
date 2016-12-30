@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Formatter;
+use std::fmt::Write;
 //use std::collections::Vec;
 
 type Addr = i32;
@@ -42,7 +43,7 @@ impl fmt::Debug for SupercombDefn {
         for arg in self.args.iter() {
             write!(fmt, "{} ", &arg);
         }
-        write!(fmt, "=  {:#?}", self.body)
+        write!(fmt, "{{ {:#?} }}", self.body)
 
     }
 
@@ -147,18 +148,46 @@ struct Machine {
     dump: Dump
 }
 
+fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
+    match node {
+        &HeapNode::HeapNodeNum(num) => format!("{}", num),
+        &HeapNode::HeapNodeAp{ref fn_addr, ref arg_addr} => 
+            format!("({} $ {})",
+                    format_heap_node(m, env, &m.heap.get(fn_addr).unwrap()),
+                    format_heap_node(m, env, &m.heap.get(arg_addr).unwrap())),
+        &HeapNode::HeapNodeSupercomb(ref sc_defn) =>  {
+            let mut sc_str = String::new();
+            write!(&mut sc_str, "{}", sc_defn.name);
+            for arg in sc_defn.args.iter() {
+                write!(&mut sc_str, "({}:{}) ", arg, 
+                       env
+                        .get(arg)
+                        .and_then(|addr| m.heap.get(addr))
+                        .map(|param| format!("{:#?}", param))
+                        .unwrap_or("null".to_string())
+                        );
+            }
+            write!(&mut sc_str, "{{ ");
+            write!(&mut sc_str, "{:#?}", sc_defn.body);
+            write!(&mut sc_str, " }}");
+            sc_str
+
+        
+        }
+    }
+}
 fn print_machine(m: &Machine, env: &Bindings) {
     print!("\n\n\n");
-    print!( "\n*** env: ***\n");
-    for (name, addr) in env.iter() {
-        print!("{} => {:#?}\n", name, m.heap.get(addr).unwrap());
-    }
 
     print!( "*** stack: ***\n");
     for addr in m.stack.iter() {
-        print!("{} => {:#?}\n", *addr, m.heap.get(addr).unwrap());
+        print!("stack[{}] = {}\n", *addr, format_heap_node(m, env, &m.heap.get(addr).unwrap()));
     }
 
+    print!( "\n*** env: ***\n");
+    for (name, addr) in env.iter() {
+        print!("{} => {}\n", name, format_heap_node(m, env, &m.heap.get(addr).unwrap()));
+    }
     print!("*** heap: ***\n");
     print!("{:#?}", m.heap);
 }
@@ -278,7 +307,7 @@ impl Machine {
     }
 
     //make an environment for the execution of the supercombinator
-    fn make_environment(sc_defn: &SupercombDefn,
+    fn make_supercombinator_env(sc_defn: &SupercombDefn,
                         heap: &Heap,
                         stack_args:&Vec<Addr>,
                         globals: &Bindings) -> Bindings {
@@ -287,12 +316,34 @@ impl Machine {
 
         let mut env = globals.clone();
 
-        for (arg_name, arg_addr) in 
+        /*
+         * let f a b c = <body>
+         *
+         * if a function call of the form f x y z was made,
+         * the stack will look like
+         * ---top---
+         * f
+         * f x
+         * f x y
+         * f x y z
+         * --------
+         *
+         * the "f" will be popped beforehand (that is part of the contract
+         * of calling make_supercombinator_env)
+         *
+         *
+         * So, we go down the stack, removing function applications, and
+         * binding the RHS to the function parameter names.
+         *
+         */
+        for (arg_name, application_addr) in 
                 sc_defn.args.iter().zip(stack_args.iter()) {
-                let heap_lookup = heap.get(arg_addr).unwrap();
-                let param_addr = match heap_lookup {
+
+                let application = heap.get(application_addr).unwrap();
+                let param_addr = match application {
                     HeapNode::HeapNodeAp{arg_addr, ..} => arg_addr,
-                    _ => panic!("did not find application node")
+                    _ => panic!(concat!("did not find application node when ",
+                                        "unwinding stack for supercombinator"))
                 };
             env.insert(arg_name.clone(), param_addr);
     
@@ -323,7 +374,7 @@ impl Machine {
                     addrs
                 };
 
-                let env = Machine::make_environment(&sc_defn,
+                let env = Machine::make_supercombinator_env(&sc_defn,
                                                     &self.heap,
                                                     &arg_addrs,
                                                     &self.globals);
@@ -390,18 +441,33 @@ fn main() {
         Box::new(CoreExpr::Num(10))
     );
 
-    //let program_expr = (CoreExpr::Num(10));
 
+    //S K I 3
+    let ski3 = CoreExpr::Application(
+        Box::new(
+            //(SK) I
+            CoreExpr::Application(
+                //SK
+                Box::new(
+                    CoreExpr::Application(
+                        Box::new(CoreExpr::Variable("S".to_string())),
+                        Box::new(CoreExpr::Variable("K".to_string()))
+                    )
+                )
+            ,
+            Box::new(CoreExpr::Variable("I".to_string()))
+        )),
+        Box::new(CoreExpr::Num(3)));
     let main = SupercombDefn {
         name: "main".to_string(),
         args: Vec::new(),
-        body: program_expr
+        body: ski3
     };
 
     let mut m = Machine::new(vec![main]);
     
     let mut i = 1;
-    while i <= 4 {
+    while i <= 20 {
         let env = m.step();
         print_machine(&m, &env);
         i += 1;
