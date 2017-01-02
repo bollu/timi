@@ -1,15 +1,15 @@
-//use std::collections::vec_deque::VecDeque;
+#[macro_use]
+extern crate nom;
+
 use std::collections::HashMap;
 use std::fmt;
-use std::fmt::Formatter;
-use std::fmt::Write;
-//use std::collections::Vec;
+use std::fmt::{Write};
 
 type Addr = i32;
 type Name = String;
 
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 enum CoreExpr {
     Variable(Name),
     Num(i32),
@@ -29,7 +29,7 @@ impl fmt::Debug for CoreExpr {
 }
 
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 struct SupercombDefn {
     name: String,
     args: Vec<String>,
@@ -54,10 +54,8 @@ impl fmt::Debug for SupercombDefn {
 //definitions
 type CoreProgram = Vec<SupercombDefn>;
 
-
-
 //heap nodes
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 enum HeapNode {
     HeapNodeAp {
         fn_addr: Addr,
@@ -71,13 +69,13 @@ impl fmt::Debug for HeapNode {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
             &HeapNode::HeapNodeAp{ref fn_addr, ref arg_addr} => {
-                write!(fmt, "({} $ {})", fn_addr, arg_addr)
+                write!(fmt, "H-({} $ {})", fn_addr, arg_addr)
             }
             &HeapNode::HeapNodeSupercomb(ref sc_defn) => {
-                write!(fmt, "{:#?}", sc_defn)
+                write!(fmt, "H-{:#?}", sc_defn)
             },
             &HeapNode::HeapNodeNum(ref num)  => {
-                write!(fmt, "{}", num)
+                write!(fmt, "H-{}", num)
             }
         }
     }
@@ -112,7 +110,15 @@ struct Heap {
 
 impl fmt::Debug for Heap {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "{:#?}", self.heap)
+        let mut keyvals : Vec<(&Addr, &HeapNode)> = self.heap.iter().collect();
+        keyvals.sort_by(|a, b| a.0.cmp(b.0));
+
+        for &(key, val) in keyvals.iter() {
+            write!(fmt, "\t{} => {:#?}\n", key, val);
+        }
+
+        return Result::Ok(())
+
     }
 }
 
@@ -148,6 +154,8 @@ struct Machine {
     dump: Dump
 }
 
+
+
 fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
     match node {
         &HeapNode::HeapNodeNum(num) => format!("{}", num),
@@ -158,38 +166,49 @@ fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
         &HeapNode::HeapNodeSupercomb(ref sc_defn) =>  {
             let mut sc_str = String::new();
             write!(&mut sc_str, "{}", sc_defn.name);
+            /*
             for arg in sc_defn.args.iter() {
-                write!(&mut sc_str, "({}:{}) ", arg, 
+                write!(&mut sc_str, " {}={}", arg, 
                        env
                         .get(arg)
                         .and_then(|addr| m.heap.get(addr))
-                        .map(|param| format!("{:#?}", param))
+                        .map(|param| 
+                             //can happen in case of (twice $ twice) Id
+                             if param == *node {
+                                format!("self")
+                             }
+                             else {
+                                format_heap_node(m, env, &param)  
+                             })
                         .unwrap_or("null".to_string())
                         );
-            }
-            write!(&mut sc_str, "{{ ");
-            write!(&mut sc_str, "{:#?}", sc_defn.body);
-            write!(&mut sc_str, " }}");
+            }*/
             sc_str
-
         
         }
     }
 }
+
 fn print_machine(m: &Machine, env: &Bindings) {
-    print!("\n\n\n");
+    print!("\n\n===\n\n");
 
     print!( "*** stack: ***\n");
-    for addr in m.stack.iter() {
-        print!("stack[{}] = {}\n", *addr, format_heap_node(m, env, &m.heap.get(addr).unwrap()));
+    print!( "## top ##\n");
+    for addr in m.stack.iter().rev() {
+        print!("heap[{}] :  {}\n", *addr, format_heap_node(m, env, &m.heap.get(addr).unwrap()));
     }
+    print!( "## bottom ##\n");
 
-    print!( "\n*** env: ***\n");
-    for (name, addr) in env.iter() {
-        print!("{} => {}\n", name, format_heap_node(m, env, &m.heap.get(addr).unwrap()));
-    }
+
     print!("*** heap: ***\n");
     print!("{:#?}", m.heap);
+
+    print!( "\n*** env: ***\n");
+    let mut env_ordered : Vec<(&Name, &Addr)> = env.iter().collect();
+    env_ordered.sort_by(|e1, e2| e1.0.cmp(e2.0));
+    for &(name, addr) in env_ordered.iter() {
+        print!("{} => {}\n", name, format_heap_node(m, env, &m.heap.get(addr).unwrap()));
+    }
 }
 
 
@@ -242,6 +261,43 @@ fn get_prelude() -> CoreProgram {
 
     v.push(S);
 
+    //compose f g x =  f (g x)
+    let compose = SupercombDefn {
+        name: "compose".to_string(),
+        args: vec!("f".to_string(), "g".to_string(), "x".to_string()),
+        body: {
+                let gx = CoreExpr::Application(
+                            Box::new(CoreExpr::Variable("g".to_string())),
+                            Box::new(CoreExpr::Variable("x".to_string()))
+                            );
+
+                CoreExpr::Application(
+                    Box::new(CoreExpr::Variable("f".to_string())),
+                    Box::new(gx))
+        }
+    };
+
+    v.push(compose);
+    
+    //twice f = (compose f) f
+    let twice = SupercombDefn {
+        name: "twice".to_string(),
+        args: vec!("f".to_string()),
+        body: {
+                let compose_f = CoreExpr::Application(
+                            Box::new(CoreExpr::Variable("compose".to_string())),
+                            Box::new(CoreExpr::Variable("f".to_string()))
+                            );
+
+                CoreExpr::Application(
+                    Box::new(compose_f),
+                    Box::new(CoreExpr::Variable("f".to_string()))
+                    )
+        }
+    };
+
+    v.push(twice);
+
     v
 }
 
@@ -262,6 +318,8 @@ fn heap_build_initial(sc_defs: CoreProgram) -> (Heap, Bindings) {
 
     (heap, globals)
 }
+
+//interreter
 
 impl Machine {
     fn new(program: CoreProgram) -> Machine {
@@ -366,9 +424,12 @@ impl Machine {
                 //pop the supercombinator
                 let _ = self.stack.pop();
 
+                //the arguments are the stack 
+                //values below the supercombinator. There
+                //are (n = arity of supercombinator) arguments
                 let arg_addrs = {
                     let mut addrs = Vec::new();
-                    for _ in (0..sc_defn.args.len()) {
+                    for _ in 0..sc_defn.args.len() {
                         addrs.push(self.stack.pop().unwrap());
                     }
                     addrs
@@ -432,9 +493,44 @@ fn machine_is_final_state(m: &Machine) -> bool {
 
 }
 
+//parsing ---
 
+enum ParseError {}
+
+enum CoreToken {
+}
+
+struct Parser{
+    prefix_parselets: Vec<PrefixParselet>,
+    infix_parselets: Vec<InfixParselet>
+}
+
+
+impl Parser {
+    fn parse(tokens: Vec<CoreToken>) -> Result<ParseError, CoreExpr> {
+        panic!("not implemented")
+    
+    }
+}
+
+struct PrefixParselet {
+    parse: fn (p: Parser, t: CoreToken) -> CoreExpr
+
+}
+
+struct InfixParselet {
+    parse: fn(p: Parser, left: CoreExpr, t: CoreToken) -> CoreExpr,
+    precedence: i32
+}
+
+
+
+
+
+// main ---
 
 fn main() {
+    /*
     //I 3
     let program_expr = CoreExpr::Application(
         Box::new(CoreExpr::Variable("I".to_string())),
@@ -458,17 +554,36 @@ fn main() {
             Box::new(CoreExpr::Variable("I".to_string()))
         )),
         Box::new(CoreExpr::Num(3)));
+    */
+
+
+    //(((twice twice) Id)  3)
+    let twice_twice_id_3 = {
+        
+        let twice_twice = CoreExpr::Application(
+                            Box::new(CoreExpr::Variable("twice".to_string())),
+                            Box::new(CoreExpr::Variable("twice".to_string())));
+        let twice_twice_id = CoreExpr::Application(
+                                Box::new(twice_twice), 
+                                Box::new(CoreExpr::Variable("I".to_string())));
+        let twice_twice_id_3 = CoreExpr::Application(
+                            Box::new(twice_twice_id),
+                            Box::new(CoreExpr::Num(3)));
+        twice_twice_id_3
+    };
+
     let main = SupercombDefn {
         name: "main".to_string(),
         args: Vec::new(),
-        body: ski3
+        body: twice_twice_id_3
     };
 
     let mut m = Machine::new(vec![main]);
     
     let mut i = 1;
-    while i <= 20 {
+    while i <= 100 {
         let env = m.step();
+        print!("\n\n>>> i: {} <<<\n", i);
         print_machine(&m, &env);
         i += 1;
 
