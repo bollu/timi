@@ -9,7 +9,7 @@ It is written in Rust because I like the fact that
 - Rust is strict, which means that implementing certain things like letrec needs some more elbow grease
 - Rust is well thought out as a language
 
-** Roadmap
+## Roadmap
 - [x] Mark 1 (template instantiation)
 - [ ] let, letrec
 - [ ] template updates (do not stupidly instatiate each time)
