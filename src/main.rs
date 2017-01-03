@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Write};
 
+use std::cmp; //for max
+
 type Addr = i32;
 type Name = String;
 
@@ -553,14 +555,25 @@ fn machine_is_final_state(m: &Machine) -> bool {
 
 //parsing ---
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum ParseError {
     NoTokens,
     NoPrefixParserFound(CoreToken),
+    UnknownSymbol,
+
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 enum CoreToken {
+    Let,
+    LetRec,
+    In,
+    Ident(String),
+    Equals,
+    Semicolon,
+    OpenRoundBracket,
+    CloseRoundBracket,
+    Number(String),
 }
 
 #[derive(Clone)]
@@ -687,8 +700,158 @@ impl Clone for InfixParselet {
     }
 }
 
+
+fn identifier_str_to_token(token_str: &str) -> CoreToken {
+    match token_str {
+        "let" => CoreToken::Let,
+        "letrec" => CoreToken::LetRec,
+        "in" => CoreToken::In,
+        other @ _ => CoreToken::Ident(other.to_string())
+    }
+
+}
+
+fn is_char_space(c: char) -> bool {
+    c == ' ' || c == '\n' || c == '\t'
+}
+
+fn is_char_symbol(c: char) -> bool {
+    !c.is_alphabetic() && !c.is_numeric()
+}
+
+fn tokenize(program: String) -> Vec<CoreToken> {
+    //let char_arr : &[u8] = program.as_bytes();
+    let char_arr : Vec<_> = program.clone().chars().collect();
+    let mut i = 0;
+
+    let mut tokens = Vec::new();
+
+    loop {
+        //break out if we have exhausted the loop
+        if char_arr.get(i) == None {
+            break;
+        }
+
+        //consume spaces
+        while let Some(& c) = char_arr.get(i) {
+            if !is_char_space(c) {
+                break;
+            }
+            i += 1;
+        }
+        
+        //we have a character
+        if let Some(& c) = char_arr.get(i) {
+            //alphabet: parse literal
+            if c.is_alphabetic() {
+                
+                //get the identifier name
+                let mut id_string = String::new();
+
+                while let Some(&c) = char_arr.get(i) {
+                    if c.is_alphanumeric() {
+                        id_string.push(c);
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
+
+                tokens.push(identifier_str_to_token(&id_string));
+            }
+            else if c.is_numeric() {
+                //parse the number
+                //TODO: take care of floats
+                
+                let mut num_string = String::new();
+
+                while let Some(&c) = char_arr.get(i) {
+                    if c.is_numeric() {
+                        num_string.push(c);
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
+                    
+                tokens.push(CoreToken::Number(num_string));
+            
+            }
+            else {
+                assert!(is_char_symbol(c), 
+                        format!("{} is not charcter, digit or symbol", c));
+
+                /*
+                let tokens : Vec<(String, CoreToken) = 
+                    vec![("=", coretoken::equals),
+                         (";", coretoken::semicolon),
+                         ("(", coretoken::openroundbracket),
+                         (")", coretoken::closeroundbracket)];
+                */
+
+                let symbol_token_map: HashMap<&str, CoreToken> = 
+                        [("=", CoreToken::Equals),
+                         (";", CoreToken::Semicolon),
+                         ("(", CoreToken::OpenRoundBracket),
+                         (")", CoreToken::CloseRoundBracket)]
+                         .iter().cloned().collect();
+
+
+                let longest_op_len = symbol_token_map
+                                        .keys()
+                                        .map(|s| s.len())
+                                        .fold(0, cmp::max);
+
+
+                //take only enough to not cause an out of bounds error
+                let length_to_take = cmp::min(longest_op_len,
+                                              char_arr.len() - i + 1);
+
+                //take all lengths, starting from longest,
+                //ending at shortest
+                let mut longest_op_opt : Option<CoreToken> = None;
+                let mut longest_taken_length = 0;
+
+                for l in (1..length_to_take+1).rev() {
+                    let op_str : String = char_arr[i..i + l]
+                                            .iter()
+                                            .cloned()
+                                            .collect();
+
+                    if let Some(tok) = symbol_token_map.get(&op_str.as_str()) {
+                        //we found a token, break
+                        longest_taken_length = l;
+                        longest_op_opt = Some(tok.clone());
+                        break;
+                    }
+                }
+
+                //longest operator is tokenised
+                //TODO: figure out why this fucks up
+                let longest_op : CoreToken = (longest_op_opt
+                                .ok_or(ParseError::UnknownSymbol)).unwrap();
+
+                tokens.push(longest_op);
+                i += longest_taken_length;
+
+
+                
+
+            }
+        
+        }
+    
+    }
+    
+    tokens
+
+}
+
 // main ---
 fn main() {
+    print!("tokens: {:#?}", tokenize("1avcd let x 1 (();" .to_string()));
+    return;
+    
     //I 3
     let program_expr = CoreExpr::Application(
         Box::new(CoreExpr::Variable("I".to_string())),
