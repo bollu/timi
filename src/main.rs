@@ -14,6 +14,11 @@ enum CoreExpr {
     Variable(Name),
     Num(i32),
     Application(Box<CoreExpr>, Box<CoreExpr>),
+    Let {
+        is_rec: bool,
+        bindings: Vec<(Name, Box<CoreExpr>)>,
+        expr: Box<CoreExpr>
+    }
 }
 
 impl fmt::Debug for CoreExpr {
@@ -23,7 +28,21 @@ impl fmt::Debug for CoreExpr {
             &CoreExpr::Variable(ref name) => write!(fmt, "{}", name),
             &CoreExpr::Num(ref num) => write!(fmt, "n_{}", num),
             &CoreExpr::Application(ref e1, ref e2) => 
-                write!(fmt, "({:#?} {:#?})", *e1, *e2)
+                write!(fmt, "({:#?} {:#?})", *e1, *e2),
+            &CoreExpr::Let{ref is_rec, ref bindings, ref expr} => {
+                if *is_rec {
+                    try!(write!(fmt, "letrec"));
+                } else {
+                    try!(write!(fmt, "let"));
+                }
+                try!(write!(fmt, " {{\n"));
+                for &(ref name, ref expr) in bindings {
+                    try!(write!(fmt, "{} = {:#?}\n", name, expr));
+                }
+                try!(write!(fmt, "in\n"));
+                try!(write!(fmt, "{:#?}", expr));
+                write!(fmt, "}}")
+            }
         }
     }
 }
@@ -486,6 +505,10 @@ impl Machine {
     fn instantiate(&mut self, expr: CoreExpr, env: &Bindings) -> Addr {
         match expr {
             
+            CoreExpr::Let{expr, ..} => {
+                panic!("need to setup environment for let");
+                return self.instantiate(*expr, env);
+            }
             CoreExpr::Num(x) => self.heap.alloc(HeapNode::HeapNodeNum(x)),
             CoreExpr::Application(fn_expr, arg_expr) => {
                 let fn_addr = self.instantiate(*fn_expr, env);
@@ -530,37 +553,139 @@ fn machine_is_final_state(m: &Machine) -> bool {
 
 //parsing ---
 
-enum ParseError {}
+#[derive(Clone)]
+enum ParseError {
+    NoTokens,
+    NoPrefixParserFound(CoreToken),
+}
 
+#[derive(Clone, PartialEq, Eq)]
 enum CoreToken {
+}
+
+#[derive(Clone)]
+struct ParserCursor {
+    tokens: Vec<CoreToken>,
+    pos: usize,
+}
+
+impl ParserCursor {
+    fn new(tokens: Vec<CoreToken>) -> ParserCursor {
+        ParserCursor {
+            tokens: tokens,
+            pos: 0
+        }
+    }
+
+    fn peek(&self) -> Result<CoreToken, ParseError> {
+        self.tokens.get(self.pos)
+            .cloned()
+            .ok_or(ParseError::NoTokens)
+            
+    }
+
+    fn consume(&mut self) -> Result<CoreToken, ParseError> {
+        let tok = try!(self.peek());
+        self.pos += 1;
+        Result::Ok(tok)
+
+    }
 }
 
 struct Parser{
     prefix_parselets: Vec<PrefixParselet>,
-    infix_parselets: Vec<InfixParselet>
+    infix_parselets: Vec<InfixParselet>,
 }
 
 
 impl Parser {
-    fn parse(tokens: Vec<CoreToken>) -> Result<ParseError, CoreExpr> {
-        panic!("not implemented")
-    
+    fn new(prefix_parselets: Vec<PrefixParselet>,
+            infix_parselets: Vec<InfixParselet>) -> Parser {
+        Parser {
+            prefix_parselets: prefix_parselets,
+            infix_parselets: infix_parselets,
+        }
     }
+
+    //TODO: I am cloning the whole vector, this is retarded. Must find
+    //better way to escape borrow checker
+    fn parse(&self, mut cursor: &mut ParserCursor, precedence: i32) -> Result<CoreExpr, ParseError> {
+
+        //if we have no more tokens, return.
+        //othewise, continue parsing
+        let tok_prefix = try!(cursor.peek());
+           
+        let mut expr_left = try!({
+            for prefix in self.prefix_parselets.clone() {
+                if (prefix.will_parse)(&tok_prefix) {
+                    cursor.consume();
+                    return (prefix.parse)(&mut cursor, &self, &tok_prefix);
+                }
+            }
+
+            return Result::Err(ParseError::NoPrefixParserFound(tok_prefix));
+        });
+
+        loop {
+            let mut parser_found = false;
+
+            //try to look for left parser
+            let tok_infix_peek = try!(cursor.peek());
+
+            expr_left = try!({
+                for infix in self.infix_parselets.clone() {
+                    if (infix.will_parse)(&tok_infix_peek) &&
+                        infix.precedence < precedence {
+                        
+                        cursor.consume();
+                        return (infix.parse)(&mut cursor,
+                                             &self,
+                                                  &expr_left,
+                                                  &tok_infix_peek);
+                    }
+                };
+
+                //no suitable infix parser found
+                //so quit
+                return Result::Ok(expr_left);
+            });
+        }
+    }
+
 }
 
 struct PrefixParselet {
-    parse: fn (p: Parser, t: CoreToken) -> CoreExpr
+    will_parse: fn (t: &CoreToken) -> bool,
+    parse: fn (c: &mut ParserCursor, p: &Parser, t: &CoreToken) -> Result<CoreExpr, ParseError>
+
+}
+
+impl Clone for PrefixParselet {
+    fn clone(&self) -> Self {
+        PrefixParselet {
+            parse: self.parse,
+            will_parse: self.will_parse
+        }
+    }
 
 }
 
 struct InfixParselet {
-    parse: fn(p: Parser, left: CoreExpr, t: CoreToken) -> CoreExpr,
+    will_parse: fn (t: &CoreToken) -> bool,
+    parse: fn(c: &mut ParserCursor, p: &Parser, left: &CoreExpr, t: &CoreToken) -> 
+            Result<CoreExpr, ParseError>,
     precedence: i32
 }
 
-
-
-
+impl Clone for InfixParselet {
+    fn clone(&self) -> Self {
+        InfixParselet {
+            parse: self.parse,
+            will_parse: self.will_parse,
+            precedence: self.precedence
+        }
+    }
+}
 
 // main ---
 fn main() {
@@ -569,7 +694,6 @@ fn main() {
         Box::new(CoreExpr::Variable("I".to_string())),
         Box::new(CoreExpr::Num(10))
     );
-
 
     //S K I 3
     let ski3 = CoreExpr::Application(
