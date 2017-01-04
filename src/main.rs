@@ -11,6 +11,15 @@ type Addr = i32;
 type Name = String;
 
 
+
+type CoreVariable = Name;
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum CoreAST {
+    Expr(CoreExpr),
+    Unecessary
+}
+
 #[derive(Clone, PartialEq, Eq)]
 enum CoreExpr {
     Variable(Name),
@@ -20,7 +29,7 @@ enum CoreExpr {
         is_rec: bool,
         bindings: Vec<(Name, Box<CoreExpr>)>,
         expr: Box<CoreExpr>
-    }
+    },
 }
 
 impl fmt::Debug for CoreExpr {
@@ -507,7 +516,7 @@ impl Machine {
     fn instantiate(&mut self, expr: CoreExpr, env: &Bindings) -> Addr {
         match expr {
             
-            CoreExpr::Let{expr, ..} => {
+             CoreExpr::Let{expr, ..} => {
                 panic!("need to setup environment for let");
                 return self.instantiate(*expr, env);
             }
@@ -560,6 +569,14 @@ enum ParseError {
     NoTokens,
     NoPrefixParserFound(CoreToken),
     UnknownSymbol,
+    UnexpectedToken { 
+        expected: Vec<CoreToken>, 
+        found: CoreToken
+    },
+    UnexpectedAST {
+        found: CoreAST
+    }
+    
 
 }
 
@@ -603,6 +620,20 @@ impl ParserCursor {
         Result::Ok(tok)
 
     }
+
+    fn expect(&mut self, t: CoreToken) -> Result<(), ParseError> {
+        let tok = try!(self.peek());
+
+        if tok == t {
+            self.consume();
+            Result::Ok(())
+        } else {
+            Result::Err(ParseError::UnexpectedToken{
+                expected: vec![t],
+                found: tok
+            })
+        }
+    }
 }
 
 struct Parser{
@@ -622,7 +653,7 @@ impl Parser {
 
     //TODO: I am cloning the whole vector, this is retarded. Must find
     //better way to escape borrow checker
-    fn parse(&self, mut cursor: &mut ParserCursor, precedence: i32) -> Result<CoreExpr, ParseError> {
+    fn parse(&self, mut cursor: &mut ParserCursor, precedence: i32) -> Result<CoreAST, ParseError> {
 
         //if we have no more tokens, return.
         //othewise, continue parsing
@@ -669,7 +700,7 @@ impl Parser {
 
 struct PrefixParselet {
     will_parse: fn (t: &CoreToken) -> bool,
-    parse: fn (c: &mut ParserCursor, p: &Parser, t: &CoreToken) -> Result<CoreExpr, ParseError>
+    parse: fn (c: &mut ParserCursor, p: &Parser, t: &CoreToken) -> Result<CoreAST, ParseError>
 
 }
 
@@ -685,8 +716,8 @@ impl Clone for PrefixParselet {
 
 struct InfixParselet {
     will_parse: fn (t: &CoreToken) -> bool,
-    parse: fn(c: &mut ParserCursor, p: &Parser, left: &CoreExpr, t: &CoreToken) -> 
-            Result<CoreExpr, ParseError>,
+    parse: fn(c: &mut ParserCursor, p: &Parser, left: &CoreAST, t: &CoreToken) -> 
+            Result<CoreAST, ParseError>,
     precedence: i32
 }
 
@@ -781,14 +812,6 @@ fn tokenize(program: String) -> Vec<CoreToken> {
                 assert!(is_char_symbol(c), 
                         format!("{} is not charcter, digit or symbol", c));
 
-                /*
-                let tokens : Vec<(String, CoreToken) = 
-                    vec![("=", coretoken::equals),
-                         (";", coretoken::semicolon),
-                         ("(", coretoken::openroundbracket),
-                         (")", coretoken::closeroundbracket)];
-                */
-
                 let symbol_token_map: HashMap<&str, CoreToken> = 
                         [("=", CoreToken::Equals),
                          (";", CoreToken::Semicolon),
@@ -847,9 +870,181 @@ fn tokenize(program: String) -> Vec<CoreToken> {
 
 }
 
+fn make_literal_parser() -> PrefixParselet {
+    fn will_parse(t: &CoreToken) -> bool {
+            match t {
+                &CoreToken::Ident(_) => true,
+                &CoreToken::Number(_) => true,
+                _ => false
+            }
+    }
+
+
+    fn parse(mut c: &mut ParserCursor,
+             p: &Parser,
+             t: &CoreToken) -> Result<CoreAST, ParseError> {
+
+        if let &CoreToken::Ident(ref name) = t {
+            return Result::Ok(CoreAST::Expr(
+                CoreExpr::Variable(name.clone())
+            ))
+        }
+
+        if let &CoreToken::Number(ref num_str) = t  {
+            return Result::Ok(CoreAST::Expr(
+                CoreExpr::Num(i32::from_str_radix(num_str, 10).unwrap())
+            ))
+        }
+        panic!("parse() was called with illegal token")
+    }
+
+    PrefixParselet {
+        will_parse: will_parse,
+        parse: parse
+    }
+
+}
+
+
+//TODO: write an infix parser for equals
+/*
+fn parse_defn(mut c: &mut ParserCursor, p: &Parser) -> 
+    Result<(CoreVariable, Box<CoreExpr>), ParseError> {
+
+    if let CoreAST::Expr(CoreExpr::Variable(name)) =  try!(p.parse(&mut c, 0)) {
+        try!(c.expect(CoreToken::Equals));
+        
+        if let CoreAST::Expr(rhs) = try!(p.parse(&mut c, 0)) {
+            return Result::Ok((name, Box::new(rhs)))
+        }
+        else {
+            panic!("expected expr at let binding rhs");
+        }
+    
+    }
+    else {
+        panic!("variable name expected at defn");
+    }
+}*/
+
+
+fn parse_defn(mut c: &mut ParserCursor, p: &Parser) -> 
+    Result<(CoreVariable, Box<CoreExpr>), ParseError> {
+
+    if let CoreToken::Ident(name) =  try!(c.consume()) {
+        try!(c.expect(CoreToken::Equals));
+        
+        print!("found = ");
+        if let CoreAST::Expr(rhs) = try!(p.parse(&mut c, 0)) {
+            return Result::Ok((name, Box::new(rhs)))
+        }
+        else {
+            panic!("expected expr at let binding rhs");
+        }
+    
+    }
+    else {
+        panic!("variable name expected at defn");
+    }
+}
+
+//aexpr
+fn make_let_parser() -> PrefixParselet {
+    fn will_parse(t: &CoreToken) -> bool {
+            match t {
+                &CoreToken::Let => true,
+                &CoreToken::LetRec => true,
+                _ => false
+            }
+    }
+
+
+    fn parse(mut c: &mut ParserCursor,
+             p: &Parser,
+             t: &CoreToken) -> Result<CoreAST, ParseError> {
+
+
+        let mut bindings : Vec<(Name, Box<CoreExpr>)> = Vec::new();
+
+        //<bindings>
+        loop {
+            let defn = try!(parse_defn(&mut c, &p));
+            bindings.push(defn);
+                
+            //check for ;
+            //If htere is a ;, continue parsing
+            if let CoreToken::Semicolon = try!(c.peek()) {
+                c.consume();
+                continue;
+            }
+            else {
+                break;
+            }
+        }
+        //<in>
+        try!(c.expect(CoreToken::In));
+
+        //<expr>
+        let rhs_expr = {
+            //check that it is an Expr
+            match try!(p.parse(c, 0)) {
+                CoreAST::Expr(e) => e,
+                other @ _ => 
+                    return Result::Err(
+                        ParseError::UnexpectedAST{ found:other }
+                    )
+            }
+        };
+        
+        let is_rec : bool = match t {
+            &CoreToken::Let => false,
+            &CoreToken::LetRec => true,
+            other @ _ => 
+                return Result::Err(ParseError::UnexpectedToken {
+                expected: vec![CoreToken::Let, CoreToken::LetRec],
+                found: other.clone()
+            })
+        };
+
+        Result::Ok(CoreAST::Expr(CoreExpr::Let {
+            is_rec: is_rec,
+            bindings: bindings,
+            expr: Box::new(rhs_expr)
+            
+        }))
+
+    }
+
+    PrefixParselet {
+        will_parse: will_parse,
+        parse: parse
+    }
+
+}
+
+fn string_to_program(string: String) -> Result<CoreAST, ParseError> {
+    let parser : Parser = Parser {
+        prefix_parselets: vec![make_literal_parser(),
+                               make_let_parser()],
+        infix_parselets: vec![]
+    };
+
+
+    let tokens : Vec<CoreToken> = tokenize(string);
+    let mut cursor: ParserCursor = ParserCursor::new(tokens);
+
+    parser.parse(&mut cursor, 0)
+
+}
+
 // main ---
 fn main() {
-    print!("tokens: {:#?}", tokenize("1avcd let x 1 (();" .to_string()));
+    print!("tokens: {:#?}",
+           tokenize("1avcd let x 1 (();==" .to_string()));
+
+
+    print!("parse: {:#?}",
+           string_to_program("letrec x = 3; y = 4 in 3".to_string()));
     return;
     
     //I 3
