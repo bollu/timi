@@ -1022,7 +1022,7 @@ fn make_let_parser() -> PrefixParselet {
 
 }
 
-fn string_to_program(string: String) -> Result<CoreAST, ParseError> {
+fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
     let parser : Parser = Parser {
         prefix_parselets: vec![make_literal_parser(),
                                make_let_parser()],
@@ -1033,8 +1033,60 @@ fn string_to_program(string: String) -> Result<CoreAST, ParseError> {
     let tokens : Vec<CoreToken> = tokenize(string);
     let mut cursor: ParserCursor = ParserCursor::new(tokens);
 
-    parser.parse(&mut cursor, 0)
+    let mut program : CoreProgram = Vec::new();
 
+    loop {
+        if let CoreToken::Ident(sc_name) = try!(cursor.peek()) {
+            cursor.consume();
+
+            let mut sc_args = Vec::new();
+            //<args>* = <expr>
+            while try!(cursor.peek()) != CoreToken::Equals {
+                if let CoreToken::Ident(sc_arg) = try!(cursor.peek()) {
+                    print!("found arg: {}\n", sc_arg);
+                    cursor.consume();
+                    sc_args.push(sc_arg);
+                
+                }
+                else {
+                    panic!("super combinator argument expected, {:#?} encountered",
+                           cursor.consume());
+                }
+            }
+            //take the equals
+            cursor.expect(CoreToken::Equals);
+
+            if let CoreAST::Expr(sc_expr) = try!(parser.parse(&mut cursor, 0)) {
+                program.push(SupercombDefn {
+                    name: sc_name,
+                    args: sc_args,
+                    body: sc_expr
+                });
+            }
+            else {
+                panic!("expected sc expr");
+            }
+
+
+            match cursor.peek() {
+                //we ran out of tokens, this is the last SC
+                //break
+                Result::Err(ParseError::NoTokens) => break,
+                //we got a ;, more SCs to come
+                Result::Ok(CoreToken::Semicolon) => {
+                    cursor.expect(CoreToken::Semicolon);
+                    continue
+                },
+                other @ _ => panic!("expected either ; or EOF, found {:#?}",
+                                    other)
+            }
+        
+        } else {
+            panic!("super combinator name expected, {:#?} encountered",
+                   cursor.consume());
+        }
+    }
+    Result::Ok(program)
 }
 
 // main ---
@@ -1044,7 +1096,7 @@ fn main() {
 
 
     print!("parse: {:#?}",
-           string_to_program("letrec x = 3; y = 4 in 3".to_string()));
+           string_to_program("I x = x; K x y = x; S f g x = f g x".to_string()));
     return;
     
     //I 3
