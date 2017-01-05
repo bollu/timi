@@ -645,7 +645,6 @@ impl ParserCursor {
     }
 
     fn consume(&mut self) -> Result<CoreToken, ParseError> {
-
         match self.peek() {
             CoreToken::PeekNoToken => Result::Err(ParseError::NoTokens),
             other @ _ => {
