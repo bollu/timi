@@ -76,11 +76,12 @@ struct SupercombDefn {
 
 impl fmt::Debug for SupercombDefn {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "{} ", &self.name);
+        try!(write!(fmt, "{} ", &self.name));
         for arg in self.args.iter() {
-            write!(fmt, "{} ", &arg);
+            try!(write!(fmt, "{} ", &arg));
         }
-        write!(fmt, "{{ {:#?} }}", self.body)
+        try!(write!(fmt, "{{ {:#?} }}", self.body));
+        Result::Ok(())
 
     }
 
@@ -155,7 +156,7 @@ impl fmt::Debug for Heap {
         keyvals.sort_by(|a, b| a.0.cmp(b.0));
 
         for &(key, val) in keyvals.iter().rev() {
-            write!(fmt, "\t{} => {:#?}\n", key, val);
+            try!(write!(fmt, "\t{} => {:#?}\n", key, val));
         }
 
         return Result::Ok(())
@@ -220,7 +221,7 @@ fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
                     format_heap_node(m, env, &m.heap.get(arg_addr).unwrap())),
         &HeapNode::HeapNodeSupercomb(ref sc_defn) =>  {
             let mut sc_str = String::new();
-            write!(&mut sc_str, "{}", sc_defn.name);
+            write!(&mut sc_str, "{}", sc_defn.name).unwrap();
             sc_str
         
         }
@@ -445,9 +446,20 @@ impl Machine {
     fn instantiate(&mut self, expr: CoreExpr, env: &Bindings) -> Addr {
         match expr {
             
-             CoreExpr::Let(CoreLet{..}) => {
-                return self.instantiate(expr, env);
-                panic!("need to setup environment for let");
+             CoreExpr::Let(CoreLet{expr: let_rhs, bindings, is_rec}) => {
+                let mut let_env : Bindings = env.clone();
+
+                if is_rec {
+                    panic!("cannot handle letrec");
+                } else {
+                    for (bind_name, bind_expr) in bindings.into_iter() {
+                        let addr = self.instantiate(*bind_expr, &env);
+                        let_env.insert(bind_name.clone(), addr);
+                    }
+                
+                };
+                self.instantiate(*let_rhs, &let_env)
+
             }
             CoreExpr::Num(x) => self.heap.alloc(HeapNode::HeapNodeNum(x)),
             CoreExpr::Application(fn_expr, arg_expr) => {
@@ -496,7 +508,6 @@ fn machine_is_final_state(m: &Machine) -> bool {
 #[derive(Clone, Debug)]
 enum ParseError {
     NoTokens,
-    NoPrefixParserFound(CoreToken),
     UnknownSymbol,
     UnexpectedToken { 
         expected: Vec<CoreToken>, 
@@ -874,7 +885,7 @@ fn parse_application(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseErr
     let mut application_vec : Vec<CoreExpr> = Vec::new();
     loop {
         let c = cursor.peek();
-        if (is_token_atomic_expr_start(c)) {
+        if is_token_atomic_expr_start(c) {
             let atomic_expr = try!(parse_atomic_expr(&mut cursor));
             application_vec.push(atomic_expr);
         } else {
@@ -963,7 +974,7 @@ fn parse_or(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
     let and_lhs = try!(parse_and(&mut cursor));
 
     if let CoreToken::Or = cursor.peek() {
-        cursor.consume();
+        try!(cursor.consume());
         let and_rhs = try!(parse_and(&mut cursor));
 
         let or_val = CoreExpr::Variable("|".to_string());
@@ -1031,10 +1042,6 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
                 body: sc_body
             });
 
-
-            print!("supercombs: \n{:#?}\n", program);
-
-
             match cursor.peek() {
                 //we ran out of tokens, this is the last SC
                 //break
@@ -1059,7 +1066,7 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
 // main ---
 fn main() {
     
-    let main = string_to_program("main = S K K 3".to_string()).unwrap().remove(0);
+    let main = string_to_program("main = let x = 3 in x".to_string()).unwrap().remove(0);
     let mut m = Machine::new(vec![main]);
     
     let mut i = 1;
