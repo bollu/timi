@@ -234,7 +234,14 @@ fn print_machine(m: &Machine, env: &Bindings) {
     print!( "*** stack: ***\n");
     print!( "## top ##\n");
     for addr in m.stack.iter().rev() {
-        print!("heap[{}] :  {}\n", *addr, format_heap_node(m, env, &m.heap.get(addr).unwrap()));
+        print!("heap[{}] :  {}\n",
+               *addr,
+               format_heap_node(m, 
+                                env,
+                                &m.heap.get(addr)
+                                .expect(&format!("\nunable to find value\
+                                                at {} on heap {:#?}: \n",
+                                                addr, m.heap))));
     }
     print!( "## bottom ##\n");
 
@@ -442,23 +449,148 @@ impl Machine {
         }
     }
 
+    fn rebind_vars_to_env(old_addr: Addr,
+                          new_addr: Addr,
+                          edit_addr: Addr,
+                          mut heap: &mut Heap) {
+
+        match heap.get(&edit_addr)
+            .expect(&format!("unable to find edit address: {} in heap: {:#?}", edit_addr, heap))
+            {
+            HeapNode::HeapNodeAp{fn_addr, arg_addr} => {
+                let mut new_ap_node = HeapNode::HeapNodeAp{
+                    fn_addr: fn_addr, 
+                    arg_addr: arg_addr
+                };
+
+                let new_fn_addr = if fn_addr == old_addr {
+                    new_addr
+                } else {
+                    fn_addr
+                };
+
+
+                let new_arg_addr = if arg_addr == old_addr {
+                    new_addr
+                } else {
+                    arg_addr
+                };
+
+                //if we have not replaced, then recurse
+                //into the application calls
+                if fn_addr != old_addr {
+                    Machine::rebind_vars_to_env(old_addr,
+                                                new_addr,
+                                                fn_addr,
+                                                &mut heap);
+                
+                };
+
+                if arg_addr != old_addr {
+                    Machine::rebind_vars_to_env(old_addr,
+                                                new_addr,
+                                                arg_addr,
+                                                &mut heap);
+                };
+
+                heap.rewrite(&edit_addr,
+                             HeapNode::HeapNodeAp{
+                                 fn_addr: new_fn_addr, 
+                                 arg_addr: new_arg_addr
+                             });
+            
+            },
+            HeapNode::HeapNodeIndirection(ref addr) => 
+                Machine::rebind_vars_to_env(old_addr,
+                                   new_addr,
+                                   *addr,
+                                   &mut heap),
+
+            HeapNode::HeapNodeSupercomb(_) => {}
+            HeapNode::HeapNodeNum(_) => {},
+        }
+
+    }
     
     fn instantiate(&mut self, expr: CoreExpr, env: &Bindings) -> Addr {
         match expr {
             
              CoreExpr::Let(CoreLet{expr: let_rhs, bindings, is_rec}) => {
                 let mut let_env : Bindings = env.clone();
+                let mut old_addrs: Vec<Addr> = Vec::new();
+                
 
                 if is_rec {
-                    panic!("cannot handle letrec");
-                } else {
+                    //TODO: change this to zip() with range
+                    
+                    let mut addr = -1;
+                    //first create dummy indeces for all LHS
+                    for &(ref bind_name, _) in bindings.iter() {
+                        let_env.insert(bind_name.clone(), addr);
+                        old_addrs.push(addr);
+                        addr -= 1;
+                    }
+
+                    let mut old_to_new_addr: HashMap<Addr, Addr> = HashMap::new();
+
+                    let mut new_addrs: Vec<Addr> = Vec::new();
+
+                    //instantiate RHS, while storing legit
+                    //LHS addresses
+                    //TODO: cleanup, check if into_iter is sufficient
+                    for &(ref bind_name, ref bind_expr) in bindings.iter() {
+                        let new_addr = self.instantiate(*bind_expr.clone(), &let_env); 
+
+                        new_addrs.push(new_addr);
+
+
+
+                        let old_addr = let_env
+                                        .get(bind_name)
+                                        .expect(&format!("unable to find |{}| in env", bind_name))
+                                        .clone();
+
+                        old_to_new_addr.insert(old_addr, new_addr);
+
+                        //insert the "correct" address into the
+                        //let env
+                        let_env.insert(bind_name.clone(), new_addr);
+
+                    }
+
+                    //for each old address, find the new address.
+                    //and rebind every newly generated letrec expr
+                    //to tne new addr
+                    for old_addr in old_addrs.iter() {
+                        let new_addr = 
+                            old_to_new_addr
+                            .get(old_addr)
+                            .expect(&format!("unable to find address {} in\
+                                    old_to_new_addr: {:#?}",
+                                    old_addr,
+                                    old_to_new_addr));
+
+                        for to_edit_addr in new_addrs.iter() {
+                            println!("rebinding {} to {} in {}",
+                                    *old_addr, *new_addr, *to_edit_addr);
+                            Machine::rebind_vars_to_env(*old_addr,
+                                               *new_addr, 
+                                               *to_edit_addr,
+                                               &mut self.heap);
+                        }
+                    }
+                    print!("letrec env:\n {:#?}", let_env);
+                    self.instantiate(*let_rhs, &let_env)
+
+                }
+                else {
                     for (bind_name, bind_expr) in bindings.into_iter() {
-                        let addr = self.instantiate(*bind_expr, &env);
+                        let addr = self.instantiate(*bind_expr, &let_env);
                         let_env.insert(bind_name.clone(), addr);
                     }
+                    self.instantiate(*let_rhs, &let_env)
                 
-                };
-                self.instantiate(*let_rhs, &let_env)
+                }
 
             }
             CoreExpr::Num(x) => self.heap.alloc(HeapNode::HeapNodeNum(x)),
@@ -1021,7 +1153,6 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
             while cursor.peek() != CoreToken::Equals && 
                   cursor.peek() != CoreToken::PeekNoToken {
                 if let CoreToken::Ident(sc_arg) = cursor.peek() {
-                    print!("found arg: {}\n", sc_arg);
                     try!(cursor.consume());
                     sc_args.push(sc_arg);
                 
@@ -1033,7 +1164,6 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
             }
             //take the equals
             try!(cursor.expect(CoreToken::Equals));
-            print!("trying to parse expr...\n");
             let sc_body = try!(parse_expr(&mut cursor));
 
             program.push(SupercombDefn{
@@ -1066,7 +1196,7 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
 // main ---
 fn main() {
     
-    let main = string_to_program("main = let x = 3 in x".to_string()).unwrap().remove(0);
+    let main = string_to_program("main = letrec x = 3; y = 3 in y".to_string()).unwrap().remove(0);
     let mut m = Machine::new(vec![main]);
     
     let mut i = 1;
