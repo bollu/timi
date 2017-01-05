@@ -10,8 +10,6 @@ use std::cmp; //for max
 type Addr = i32;
 type Name = String;
 
-
-
 type CoreVariable = Name;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -20,16 +18,31 @@ enum CoreAST {
     Unecessary
 }
 
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct CoreLet {
+    is_rec: bool,
+    bindings: Vec<(Name, Box<CoreExpr>)>,
+    expr: Box<CoreExpr>
+}
+
+
 #[derive(Clone, PartialEq, Eq)]
 enum CoreExpr {
+    //change this?
     Variable(Name),
     Num(i32),
     Application(Box<CoreExpr>, Box<CoreExpr>),
-    Let {
-        is_rec: bool,
-        bindings: Vec<(Name, Box<CoreExpr>)>,
-        expr: Box<CoreExpr>
-    },
+    Let(CoreLet),
+    /*
+    Or(Box<CoreExpr>, Box<CoreExpr>),
+    And(Box<CoreExpr>, Box<CoreRxpr>),
+    //relational expressions
+    L(Box<CoreExpr>, Box<CoreExpr>),
+    //Add/Sub expr
+    Add(Box<CoreExpr>, Box<CoreExpr>),
+    //mul/div
+    MulExpr(Box<CoreExpr>, Box<CoreExpr>),
+    */
 }
 
 impl fmt::Debug for CoreExpr {
@@ -40,7 +53,7 @@ impl fmt::Debug for CoreExpr {
             &CoreExpr::Num(ref num) => write!(fmt, "n_{}", num),
             &CoreExpr::Application(ref e1, ref e2) => 
                 write!(fmt, "({:#?} {:#?})", *e1, *e2),
-            &CoreExpr::Let{ref is_rec, ref bindings, ref expr} => {
+            &CoreExpr::Let(CoreLet{ref is_rec, ref bindings, ref expr}) => {
                 if *is_rec {
                     try!(write!(fmt, "letrec"));
                 } else {
@@ -516,7 +529,7 @@ impl Machine {
     fn instantiate(&mut self, expr: CoreExpr, env: &Bindings) -> Addr {
         match expr {
             
-             CoreExpr::Let{expr, ..} => {
+             CoreExpr::Let(CoreLet{expr, ..}) => {
                 panic!("need to setup environment for let");
                 return self.instantiate(*expr, env);
             }
@@ -575,8 +588,8 @@ enum ParseError {
     },
     UnexpectedAST {
         found: CoreAST
-    }
-    
+    },
+    ParseErrorStr(String),
 
 }
 
@@ -585,12 +598,27 @@ enum CoreToken {
     Let,
     LetRec,
     In,
+    Case,
     Ident(String),
     Equals,
     Semicolon,
     OpenRoundBracket,
     CloseRoundBracket,
-    Number(String),
+    Integer(String),
+    Lambda,
+    Or,
+    And,
+    L,
+    LEQ,
+    G,
+    GEQ,
+    Plus,
+    Minus,
+    Mul,
+    Div,
+    //when you call peek(), it returns this token
+    //if the token stream is empty.
+    PeekNoToken
 }
 
 #[derive(Clone)]
@@ -607,22 +635,29 @@ impl ParserCursor {
         }
     }
 
-    fn peek(&self) -> Result<CoreToken, ParseError> {
-        self.tokens.get(self.pos)
-            .cloned()
-            .ok_or(ParseError::NoTokens)
+    fn peek(&self) -> CoreToken {
+        match self.tokens.get(self.pos)
+            .cloned() {
+                Some(tok) => tok,
+                None => CoreToken::PeekNoToken
+            }
             
     }
 
     fn consume(&mut self) -> Result<CoreToken, ParseError> {
-        let tok = try!(self.peek());
-        self.pos += 1;
-        Result::Ok(tok)
+
+        match self.peek() {
+            CoreToken::PeekNoToken => Result::Err(ParseError::NoTokens),
+            other @ _ => {
+                self.pos += 1;
+                Result::Ok(other)
+            }
+        }
 
     }
 
     fn expect(&mut self, t: CoreToken) -> Result<(), ParseError> {
-        let tok = try!(self.peek());
+        let tok = self.peek();
 
         if tok == t {
             self.consume();
@@ -635,6 +670,11 @@ impl ParserCursor {
         }
     }
 }
+
+
+
+
+/*
 
 struct Parser{
     prefix_parselets: Vec<PrefixParselet>,
@@ -730,6 +770,7 @@ impl Clone for InfixParselet {
         }
     }
 }
+*/
 
 
 fn identifier_str_to_token(token_str: &str) -> CoreToken {
@@ -737,6 +778,7 @@ fn identifier_str_to_token(token_str: &str) -> CoreToken {
         "let" => CoreToken::Let,
         "letrec" => CoreToken::LetRec,
         "in" => CoreToken::In,
+        "case" => CoreToken::Case,
         other @ _ => CoreToken::Ident(other.to_string())
     }
 
@@ -805,7 +847,7 @@ fn tokenize(program: String) -> Vec<CoreToken> {
                     }
                 }
                     
-                tokens.push(CoreToken::Number(num_string));
+                tokens.push(CoreToken::Integer(num_string));
             
             }
             else {
@@ -816,7 +858,19 @@ fn tokenize(program: String) -> Vec<CoreToken> {
                         [("=", CoreToken::Equals),
                          (";", CoreToken::Semicolon),
                          ("(", CoreToken::OpenRoundBracket),
-                         (")", CoreToken::CloseRoundBracket)]
+                         (")", CoreToken::CloseRoundBracket),
+                         ("(", CoreToken::OpenRoundBracket),
+                         ("|", CoreToken::Or),
+                         ("&", CoreToken::And),
+                         ("<", CoreToken::L),
+                         ("<=", CoreToken::LEQ),
+                         (">", CoreToken::G),
+                         (">=", CoreToken::GEQ),
+                         ("+", CoreToken::Plus),
+                         ("-", CoreToken::Minus),
+                         ("*", CoreToken::Mul),
+                         ("/", CoreToken::Div),
+                         ("\\", CoreToken::Lambda)]
                          .iter().cloned().collect();
 
 
@@ -828,7 +882,7 @@ fn tokenize(program: String) -> Vec<CoreToken> {
 
                 //take only enough to not cause an out of bounds error
                 let length_to_take = cmp::min(longest_op_len,
-                                              char_arr.len() - i + 1);
+                                              char_arr.len() - i);
 
                 //take all lengths, starting from longest,
                 //ending at shortest
@@ -870,64 +924,13 @@ fn tokenize(program: String) -> Vec<CoreToken> {
 
 }
 
-fn make_literal_parser() -> PrefixParselet {
-    fn will_parse(t: &CoreToken) -> bool {
-            match t {
-                &CoreToken::Ident(_) => true,
-                &CoreToken::Number(_) => true,
-                _ => false
-            }
-    }
-
-
-    fn parse(mut c: &mut ParserCursor,
-             p: &Parser,
-             t: &CoreToken) -> Result<CoreAST, ParseError> {
-
-        if let &CoreToken::Ident(ref name) = t {
-            return Result::Ok(CoreAST::Expr(
-                CoreExpr::Variable(name.clone())
-            ))
-        }
-
-        if let &CoreToken::Number(ref num_str) = t  {
-            return Result::Ok(CoreAST::Expr(
-                CoreExpr::Num(i32::from_str_radix(num_str, 10).unwrap())
-            ))
-        }
-        panic!("parse() was called with illegal token")
-    }
-
-    PrefixParselet {
-        will_parse: will_parse,
-        parse: parse
-    }
-
-}
-
 
 //TODO: write an infix parser for equals
+//this is now totally possible since (=) is used to parse only 
+//<var> = <defn> for let expressions.
+
+
 /*
-fn parse_defn(mut c: &mut ParserCursor, p: &Parser) -> 
-    Result<(CoreVariable, Box<CoreExpr>), ParseError> {
-
-    if let CoreAST::Expr(CoreExpr::Variable(name)) =  try!(p.parse(&mut c, 0)) {
-        try!(c.expect(CoreToken::Equals));
-        
-        if let CoreAST::Expr(rhs) = try!(p.parse(&mut c, 0)) {
-            return Result::Ok((name, Box::new(rhs)))
-        }
-        else {
-            panic!("expected expr at let binding rhs");
-        }
-    
-    }
-    else {
-        panic!("variable name expected at defn");
-    }
-}*/
-
-
 fn parse_defn(mut c: &mut ParserCursor, p: &Parser) -> 
     Result<(CoreVariable, Box<CoreExpr>), ParseError> {
 
@@ -947,88 +950,237 @@ fn parse_defn(mut c: &mut ParserCursor, p: &Parser) ->
         panic!("variable name expected at defn");
     }
 }
+*/
 
-//aexpr
-fn make_let_parser() -> PrefixParselet {
-    fn will_parse(t: &CoreToken) -> bool {
-            match t {
-                &CoreToken::Let => true,
-                &CoreToken::LetRec => true,
-                _ => false
-            }
-    }
-
-
-    fn parse(mut c: &mut ParserCursor,
-             p: &Parser,
-             t: &CoreToken) -> Result<CoreAST, ParseError> {
-
-
-        let mut bindings : Vec<(Name, Box<CoreExpr>)> = Vec::new();
-
-        //<bindings>
-        loop {
-            let defn = try!(parse_defn(&mut c, &p));
-            bindings.push(defn);
-                
-            //check for ;
-            //If htere is a ;, continue parsing
-            if let CoreToken::Semicolon = try!(c.peek()) {
-                c.consume();
-                continue;
-            }
-            else {
-                break;
-            }
-        }
-        //<in>
-        try!(c.expect(CoreToken::In));
-
-        //<expr>
-        let rhs_expr = {
-            //check that it is an Expr
-            match try!(p.parse(c, 0)) {
-                CoreAST::Expr(e) => e,
-                other @ _ => 
-                    return Result::Err(
-                        ParseError::UnexpectedAST{ found:other }
-                    )
-            }
-        };
-        
-        let is_rec : bool = match t {
-            &CoreToken::Let => false,
-            &CoreToken::LetRec => true,
-            other @ _ => 
-                return Result::Err(ParseError::UnexpectedToken {
-                expected: vec![CoreToken::Let, CoreToken::LetRec],
-                found: other.clone()
-            })
-        };
-
-        Result::Ok(CoreAST::Expr(CoreExpr::Let {
-            is_rec: is_rec,
-            bindings: bindings,
-            expr: Box::new(rhs_expr)
-            
-        }))
-
-    }
-
-    PrefixParselet {
-        will_parse: will_parse,
-        parse: parse
+//does this token allow us to start to parse an
+//atomic expression?
+fn is_token_atomic_expr_start(t: CoreToken) -> bool {
+    match t {
+        CoreToken::Integer(_) => true,
+        CoreToken::Ident(_) => true,
+        CoreToken::OpenRoundBracket => true,
+        _ => false
     }
 
 }
 
-fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
-    let parser : Parser = Parser {
-        prefix_parselets: vec![make_literal_parser(),
-                               make_let_parser()],
-        infix_parselets: vec![]
+
+//atomic := <num> | <ident> | "(" <expr> ")"
+fn parse_atomic_expr(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
+    match c.peek() {
+        CoreToken::Integer(num_str) => {
+            c.consume();
+            let num = try!(i32::from_str_radix(&num_str, 10)
+                           .map_err(|_| 
+                                    ParseError::ParseErrorStr(
+                                        format!("unable to parse {} as int",
+                                                num_str).to_string())));
+            Result::Ok(CoreExpr::Num(num))
+        },
+        CoreToken::Ident(ident) => {
+            c.consume();
+            Result::Ok(CoreExpr::Variable(ident))
+        },
+        CoreToken::OpenRoundBracket => {
+            try!(c.expect(CoreToken::OpenRoundBracket));
+            let inner_expr = try!(parse_expr(&mut c));
+            c.expect(CoreToken::CloseRoundBracket);
+            Result::Ok(inner_expr)
+        },
+        other @ _ => 
+            panic!("expected integer, identifier or (<expr>), found {:#?}", other)
+    }
+
+}
+
+//defn := <variable> "=" <expr>
+fn parse_defn(mut c: &mut ParserCursor) -> 
+    Result<(CoreVariable, Box<CoreExpr>), ParseError> {
+
+    if let CoreToken::Ident(name) = c.peek() {
+        c.consume();
+        try!(c.expect(CoreToken::Equals));
+        
+        let rhs : CoreExpr = try!(parse_expr(&mut c));
+        Result::Ok((name, Box::new(rhs)))
+    
+    }
+    else {
+        panic!("variable name expected at defn");
+    }
+}
+
+//let := "let" <bindings> "in" <expr>
+fn parse_let(mut c: &mut ParserCursor) -> Result<CoreLet, ParseError> {
+    //<let>
+    let let_token = match c.peek() {
+        CoreToken::Let => try!(c.consume()),
+        CoreToken::LetRec => try!(c.consume()),
+        other @ _ => panic!("expected let or letrec, found {:#?}", c.peek())
     };
 
+    let mut bindings : Vec<(Name, Box<CoreExpr>)> = Vec::new();
+
+    //<bindings>
+    loop {
+        let defn = try!(parse_defn(&mut c));
+        bindings.push(defn);
+            
+        //check for ;
+        //If htere is a ;, continue parsing
+        if let CoreToken::Semicolon = c.peek() {
+            c.consume();
+            continue;
+        }
+        else {
+            break;
+        }
+    }
+    //<in>
+    try!(c.expect(CoreToken::In));
+
+    //<expr>
+    let rhs_expr = try!(parse_expr(c));
+    
+    let is_rec : bool = match let_token {
+        CoreToken::Let => false,
+        CoreToken::LetRec => true,
+        other @ _ => 
+            return Result::Err(ParseError::UnexpectedToken {
+            expected: vec![CoreToken::Let, CoreToken::LetRec],
+            found: other.clone()
+        })
+    };
+
+    Result::Ok(CoreLet {
+        is_rec: is_rec,
+        bindings: bindings,
+        expr: Box::new(rhs_expr)
+    })
+}
+
+fn parse_application(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
+    let mut application_vec : Vec<CoreExpr> = Vec::new();
+    loop {
+        let c = cursor.peek();
+        if (is_token_atomic_expr_start(c)) {
+            let atomic_expr = try!(parse_atomic_expr(&mut cursor));
+            application_vec.push(atomic_expr);
+        } else {
+            break;
+        }
+    }
+
+    if application_vec.len() == 0 {
+        Result::Err(
+            ParseError::ParseErrorStr(
+                concat!("wanted function application or atomic expr",
+                        "found neither").to_string()))
+    
+    }
+    else if application_vec.len() == 1 {
+        //just an atomic expr
+        Result::Ok(application_vec.remove(0))
+    }
+    else {
+        //function application
+        //convert f g x  y to
+        //((f g) x) y
+        let mut cur_ap_lhs = {
+            let ap_lhs = application_vec.remove(0);
+            let ap_rhs = application_vec.remove(0);
+            CoreExpr::Application(Box::new(ap_lhs), Box::new(ap_rhs))
+        };
+
+        //drop the first two and start folding
+        for ap_rhs in application_vec.into_iter().skip(2) {
+            cur_ap_lhs = CoreExpr::Application(Box::new(cur_ap_lhs), Box::new(ap_rhs));
+        }
+
+        Result::Ok(cur_ap_lhs)
+    }
+}
+
+fn parse_mul_div(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
+    parse_application(&mut cursor)
+}
+
+
+fn parse_add_sub(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
+    parse_mul_div(&mut cursor)
+}
+
+fn parse_relop(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
+    let add_sub_lhs : CoreExpr = try!(parse_add_sub(&mut cursor));
+
+    let c : CoreToken = cursor.peek();
+
+    let add_sub_rhs : CoreExpr = {
+        if c == CoreToken::L {
+            try!(parse_add_sub(&mut cursor))
+        } else {
+            return Result::Ok(add_sub_lhs);
+        }
+    };
+
+    let operator : CoreExpr = 
+        if c == CoreToken::L {
+            CoreExpr::Variable("<".to_string())
+        } else {
+            panic!("unknown token for relop: {:#?}", c)
+        };
+    
+
+    let ap_inner = 
+        CoreExpr::Application(Box::new(operator), Box::new(add_sub_lhs));
+    
+    Result::Ok(CoreExpr::Application(Box::new(ap_inner),
+                                     Box::new(add_sub_rhs)))
+
+}
+
+//TODO: make a higher order function to unify AND, OR, PLUS, etc. they're
+//basically the same thing
+//expr2 -> expr3 "&" expr2 | expr3
+fn parse_and(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
+    (parse_relop(&mut cursor))
+}
+
+//expr1 -> expr2 "|" expr1 | expr1
+fn parse_or(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
+    let and_lhs = try!(parse_and(&mut cursor));
+
+    if let CoreToken::Or = cursor.peek() {
+        cursor.consume();
+        let and_rhs = try!(parse_and(&mut cursor));
+
+        let or_val = CoreExpr::Variable("|".to_string());
+        let ap_inner = 
+            CoreExpr::Application(Box::new(or_val),
+                                  Box::new(and_lhs));
+
+        Result::Ok(CoreExpr::Application(Box::new(ap_inner),
+                                         Box::new(and_rhs)))
+    } else {
+        Result::Ok(and_lhs)
+    }
+}
+
+
+
+fn parse_expr(mut c: &mut ParserCursor) ->
+    Result<CoreExpr, ParseError> {
+    match c.peek() {
+        CoreToken::Let => parse_let(&mut c).map(|l| CoreExpr::Let(l)),
+        CoreToken::LetRec => parse_let(&mut c).map(|l| CoreExpr::Let(l)),
+        CoreToken::Case => panic!("cannot handle case yet"),
+        CoreToken::Lambda => panic!("cannot handle lambda yet"),
+        other @ _ => parse_or(&mut c)
+    }
+}
+
+
+fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
 
     let tokens : Vec<CoreToken> = tokenize(string);
     let mut cursor: ParserCursor = ParserCursor::new(tokens);
@@ -1036,13 +1188,14 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
     let mut program : CoreProgram = Vec::new();
 
     loop {
-        if let CoreToken::Ident(sc_name) = try!(cursor.peek()) {
+        if let CoreToken::Ident(sc_name) = cursor.peek() {
             cursor.consume();
 
             let mut sc_args = Vec::new();
             //<args>* = <expr>
-            while try!(cursor.peek()) != CoreToken::Equals {
-                if let CoreToken::Ident(sc_arg) = try!(cursor.peek()) {
+            while cursor.peek() != CoreToken::Equals && 
+                  cursor.peek() != CoreToken::PeekNoToken {
+                if let CoreToken::Ident(sc_arg) = cursor.peek() {
                     print!("found arg: {}\n", sc_arg);
                     cursor.consume();
                     sc_args.push(sc_arg);
@@ -1055,26 +1208,26 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
             }
             //take the equals
             cursor.expect(CoreToken::Equals);
+            print!("trying to parse expr...\n");
+            let sc_body = try!(parse_expr(&mut cursor));
 
-            if let CoreAST::Expr(sc_expr) = try!(parser.parse(&mut cursor, 0)) {
-                program.push(SupercombDefn {
-                    name: sc_name,
-                    args: sc_args,
-                    body: sc_expr
-                });
-            }
-            else {
-                panic!("expected sc expr");
-            }
+            program.push(SupercombDefn{
+                name: sc_name,
+                args: sc_args,
+                body: sc_body
+            });
+
+
+            print!("supercombs: \n{:#?}\n", program);
 
 
             match cursor.peek() {
                 //we ran out of tokens, this is the last SC
                 //break
-                Result::Err(ParseError::NoTokens) => break,
+                CoreToken::PeekNoToken => break,
                 //we got a ;, more SCs to come
-                Result::Ok(CoreToken::Semicolon) => {
-                    cursor.expect(CoreToken::Semicolon);
+                CoreToken::Semicolon => {
+                    try!(cursor.expect(CoreToken::Semicolon));
                     continue
                 },
                 other @ _ => panic!("expected either ; or EOF, found {:#?}",
@@ -1091,12 +1244,12 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
 
 // main ---
 fn main() {
-    print!("tokens: {:#?}",
-           tokenize("1avcd let x 1 (();==" .to_string()));
+    print!("tokens: {:#?\n}",
+           tokenize("1 2 3;" .to_string()));
 
 
     print!("parse: {:#?}",
-           string_to_program("I x = x; K x y = x; S f g x = f g x".to_string()));
+           string_to_program("I x = 12".to_string()));
     return;
     
     //I 3

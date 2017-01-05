@@ -16,3 +16,20 @@ It is written in Rust because I like the fact that
 - [ ] numeric functions
 - [ ] Pratt Parser for core
 - [ ] nicer interface for stepping through execution
+
+
+### Design Decisions
+
+#### Why does `peek()` return `PeekNoToken` instead of error?
+in a lot of the parsing, we usually check if the next token is something.
+if it isn't, we just return immediately.
+
+Semantically, it makes sense, since you're just "peeking" at the next token,
+so we can signal that there is no token by returning a sentinel token.
+
+
+`try!(cursor.peek())` causes us to lose control flow and propogate
+an __error__ if we peek at something that doesn't exist, which is the wrong
+semantics. We want the user to be able to peek and make decisions based on
+whether something is present ahead or not. `consume()` and `expect()` should
+return errors since you're asking the cursor to go one token ahead.
