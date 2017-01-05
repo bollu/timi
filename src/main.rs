@@ -52,7 +52,7 @@ impl fmt::Debug for CoreExpr {
             &CoreExpr::Variable(ref name) => write!(fmt, "{}", name),
             &CoreExpr::Num(ref num) => write!(fmt, "n_{}", num),
             &CoreExpr::Application(ref e1, ref e2) => 
-                write!(fmt, "({:#?} {:#?})", *e1, *e2),
+                write!(fmt, "({:#?} $ {:#?})", *e1, *e2),
             &CoreExpr::Let(CoreLet{ref is_rec, ref bindings, ref expr}) => {
                 if *is_rec {
                     try!(write!(fmt, "letrec"));
@@ -1082,6 +1082,7 @@ fn parse_application(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseErr
         Result::Ok(application_vec.remove(0))
     }
     else {
+
         //function application
         //convert f g x  y to
         //((f g) x) y
@@ -1092,7 +1093,7 @@ fn parse_application(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseErr
         };
 
         //drop the first two and start folding
-        for ap_rhs in application_vec.into_iter().skip(2) {
+        for ap_rhs in application_vec.into_iter() {
             cur_ap_lhs = CoreExpr::Application(Box::new(cur_ap_lhs), Box::new(ap_rhs));
         }
 
@@ -1179,6 +1180,8 @@ fn parse_expr(mut c: &mut ParserCursor) ->
 }
 
 
+
+
 fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
 
     let tokens : Vec<CoreToken> = tokenize(string);
@@ -1243,58 +1246,8 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
 
 // main ---
 fn main() {
-    print!("tokens: {:#?\n}",
-           tokenize("1 2 3;" .to_string()));
-
-
-    print!("parse: {:#?}",
-           string_to_program("I x = 12".to_string()));
-    return;
     
-    //I 3
-    let program_expr = CoreExpr::Application(
-        Box::new(CoreExpr::Variable("I".to_string())),
-        Box::new(CoreExpr::Num(10))
-    );
-
-    //S K I 3
-    let ski3 = CoreExpr::Application(
-        Box::new(
-            //(SK) I
-            CoreExpr::Application(
-                //SK
-                Box::new(
-                    CoreExpr::Application(
-                        Box::new(CoreExpr::Variable("S".to_string())),
-                        Box::new(CoreExpr::Variable("K".to_string()))
-                    )
-                )
-            ,
-            Box::new(CoreExpr::Variable("I".to_string()))
-        )),
-        Box::new(CoreExpr::Num(3)));
-
-    //(((twice twice) Id)  3)
-    let twice_twice_id_3 = {
-        
-        let twice_twice = CoreExpr::Application(
-                            Box::new(CoreExpr::Variable("twice".to_string())),
-                            Box::new(CoreExpr::Variable("twice".to_string())));
-        let twice_twice_id = CoreExpr::Application(
-                                Box::new(twice_twice), 
-                                Box::new(CoreExpr::Variable("I".to_string())));
-        let twice_twice_id_3 = CoreExpr::Application(
-                            Box::new(twice_twice_id),
-                            Box::new(CoreExpr::Num(3)));
-        twice_twice_id_3
-    };
-
-    let main = SupercombDefn {
-        name: "main".to_string(),
-        args: Vec::new(),
-        body: twice_twice_id_3
-    };
-
+    let main = string_to_program("main = S K K 3".to_string()).unwrap().remove(0);
     let mut m = Machine::new(vec![main]);
     
     let mut i = 1;
