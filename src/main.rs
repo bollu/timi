@@ -19,7 +19,6 @@ struct CoreLet {
     expr: Box<CoreExpr>
 }
 
-
 #[derive(Clone, PartialEq, Eq)]
 enum CoreExpr {
     //change this?
@@ -276,7 +275,7 @@ fn get_prelude() -> CoreProgram {
                        ".to_string()).unwrap()
 }
 
-fn get_primitives() -> HashMap<Name, MachinePrimOp> {
+fn get_primitives() -> Vec<(Name, MachinePrimOp)> {
     [("+".to_string(), MachinePrimOp::Add),
      ("-".to_string(), MachinePrimOp::Sub),
      ("*".to_string(), MachinePrimOp::Mul),
@@ -285,7 +284,7 @@ fn get_primitives() -> HashMap<Name, MachinePrimOp> {
     ].iter().cloned().collect()
 }
 
-fn heap_build_initial(sc_defs: CoreProgram) -> (Heap, Bindings) {
+fn heap_build_initial(sc_defs: CoreProgram, prims: Vec<(Name, MachinePrimOp)>) -> (Heap, Bindings) {
     let mut heap = Heap::new();
     let mut globals = HashMap::new();
 
@@ -300,8 +299,15 @@ fn heap_build_initial(sc_defs: CoreProgram) -> (Heap, Bindings) {
         globals.insert(sc_def.name.clone(), addr);
     }
 
+    for (name, prim_op) in prims.into_iter() {
+        let addr = heap.alloc(HeapNode::HeapNodePrimitive(name.clone(),
+                                                          prim_op));
+        globals.insert(name, addr);
+    }
+
     (heap, globals)
 }
+
 
 //interreter
 
@@ -311,7 +317,8 @@ impl Machine {
         let mut sc_defs = program.clone();
         sc_defs.extend(get_prelude().iter().cloned());
 
-        let (initial_heap, globals) = heap_build_initial(sc_defs);
+        let (initial_heap, globals) = heap_build_initial(sc_defs,
+                                                         get_primitives());
         
         //get main out of the heap
         let main_addr : Addr = match globals.get("main") {
@@ -477,11 +484,6 @@ impl Machine {
             .expect(&format!("unable to find edit address: {} in heap: {:#?}", edit_addr, heap))
             {
             HeapNode::HeapNodeAp{fn_addr, arg_addr} => {
-                let new_ap_node = HeapNode::HeapNodeAp{
-                    fn_addr: fn_addr, 
-                    arg_addr: arg_addr
-                };
-
                 let new_fn_addr = if fn_addr == old_addr {
                     new_addr
                 } else {
