@@ -26,17 +26,7 @@ enum CoreExpr {
     Variable(Name),
     Num(i32),
     Application(Box<CoreExpr>, Box<CoreExpr>),
-    Let(CoreLet),
-    /*
-    Or(Box<CoreExpr>, Box<CoreExpr>),
-    And(Box<CoreExpr>, Box<CoreRxpr>),
-    //relational expressions
-    L(Box<CoreExpr>, Box<CoreExpr>),
-    //Add/Sub expr
-    Add(Box<CoreExpr>, Box<CoreExpr>),
-    //mul/div
-    MulExpr(Box<CoreExpr>, Box<CoreExpr>),
-    */
+    Let(CoreLet)
 }
 
 impl fmt::Debug for CoreExpr {
@@ -92,6 +82,17 @@ impl fmt::Debug for SupercombDefn {
 //definitions
 type CoreProgram = Vec<SupercombDefn>;
 
+//primitive operations on the machine
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum MachinePrimOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Negate,
+}
+
+
 //heap nodes
 #[derive(Clone, PartialEq, Eq)]
 enum HeapNode {
@@ -102,6 +103,7 @@ enum HeapNode {
     HeapNodeSupercomb(SupercombDefn),
     HeapNodeNum(i32),
     HeapNodeIndirection(Addr),
+    HeapNodePrimitive(Name, MachinePrimOp)
 }
 
 impl fmt::Debug for HeapNode {
@@ -118,6 +120,9 @@ impl fmt::Debug for HeapNode {
             }
             &HeapNode::HeapNodeIndirection(ref addr)  => {
                 write!(fmt, "H-indirection-{}", addr)
+            }
+            &HeapNode::HeapNodePrimitive(ref name, ref primop)  => {
+                write!(fmt, "H-prim-{} {:#?}", name, primop)
             }
         }
     }
@@ -215,6 +220,8 @@ fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
     match node {
         &HeapNode::HeapNodeIndirection(addr) => format!("indirection: {}", addr),
         &HeapNode::HeapNodeNum(num) => format!("{}", num),
+        &HeapNode::HeapNodePrimitive(ref name, 
+                                     ref primop) => format!("prim-{}-{:#?}", name, primop),
         &HeapNode::HeapNodeAp{ref fn_addr, ref arg_addr} => 
             format!("({} $ {})",
                     format_heap_node(m, env, &m.heap.get(fn_addr).unwrap()),
@@ -267,6 +274,15 @@ fn get_prelude() -> CoreProgram {
                        compose f g x = f (g x);\
                        twice f = compose f f\
                        ".to_string()).unwrap()
+}
+
+fn get_primitives() -> HashMap<Name, MachinePrimOp> {
+    [("+".to_string(), MachinePrimOp::Add),
+     ("-".to_string(), MachinePrimOp::Sub),
+     ("*".to_string(), MachinePrimOp::Mul),
+     ("/".to_string(), MachinePrimOp::Div),
+     ("negate".to_string(), MachinePrimOp::Negate),
+    ].iter().cloned().collect()
 }
 
 fn heap_build_initial(sc_defs: CoreProgram) -> (Heap, Bindings) {
@@ -398,6 +414,9 @@ impl Machine {
                 self.stack.push(*addr);
                 self.globals.clone()
             }
+            &HeapNode::HeapNodePrimitive(ref name, ref prim) => {
+                panic!("do not know how to run prim");
+            }
             &HeapNode::HeapNodeSupercomb(ref sc_defn) => {
 
                 //pop the supercombinator
@@ -458,7 +477,7 @@ impl Machine {
             .expect(&format!("unable to find edit address: {} in heap: {:#?}", edit_addr, heap))
             {
             HeapNode::HeapNodeAp{fn_addr, arg_addr} => {
-                let mut new_ap_node = HeapNode::HeapNodeAp{
+                let new_ap_node = HeapNode::HeapNodeAp{
                     fn_addr: fn_addr, 
                     arg_addr: arg_addr
                 };
@@ -506,6 +525,7 @@ impl Machine {
                                    *addr,
                                    &mut heap),
 
+            HeapNode::HeapNodePrimitive(_, _) => {}
             HeapNode::HeapNodeSupercomb(_) => {}
             HeapNode::HeapNodeNum(_) => {},
         }
@@ -558,27 +578,16 @@ impl Machine {
 
                     }
 
-                    //for each old address, find the new address.
-                    //and rebind every newly generated letrec expr
-                    //to tne new addr
-                    for old_addr in old_addrs.iter() {
-                        let new_addr = 
-                            old_to_new_addr
-                            .get(old_addr)
-                            .expect(&format!("unable to find address {} in\
-                                    old_to_new_addr: {:#?}",
-                                    old_addr,
-                                    old_to_new_addr));
-
-                        for to_edit_addr in new_addrs.iter() {
-                            println!("rebinding {} to {} in {}",
-                                    *old_addr, *new_addr, *to_edit_addr);
-                            Machine::rebind_vars_to_env(*old_addr,
-                                               *new_addr, 
-                                               *to_edit_addr,
-                                               &mut self.heap);
-                        }
+                    for (old, new) in old_to_new_addr.iter() {
+                        for to_edit_addr in old_to_new_addr.values() {
+                            Machine::rebind_vars_to_env(*old,
+                                                        *new,
+                                                        *to_edit_addr,
+                                                        &mut self.heap);
+                        } 
+                    
                     }
+
                     print!("letrec env:\n {:#?}", let_env);
                     self.instantiate(*let_rhs, &let_env)
 
@@ -1196,7 +1205,7 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
 // main ---
 fn main() {
     
-    let main = string_to_program("main = letrec x = 3; y = 3 in y".to_string()).unwrap().remove(0);
+    let main = string_to_program("main = letrec x = 3; y = x; z = y in x".to_string()).unwrap().remove(0);
     let mut m = Machine::new(vec![main]);
     
     let mut i = 1;
