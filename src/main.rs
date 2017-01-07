@@ -95,32 +95,32 @@ enum MachinePrimOp {
 //heap nodes
 #[derive(Clone, PartialEq, Eq)]
 enum HeapNode {
-    HeapNodeAp {
+    Application {
         fn_addr: Addr,
         arg_addr: Addr
     },
-    HeapNodeSupercomb(SupercombDefn),
-    HeapNodeNum(i32),
-    HeapNodeIndirection(Addr),
-    HeapNodePrimitive(Name, MachinePrimOp)
+    Supercombinator(SupercombDefn),
+    Num(i32),
+    Indirection(Addr),
+    Primitive(Name, MachinePrimOp)
 }
 
 impl fmt::Debug for HeapNode {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &HeapNode::HeapNodeAp{ref fn_addr, ref arg_addr} => {
+            &HeapNode::Application{ref fn_addr, ref arg_addr} => {
                 write!(fmt, "H-({} $ {})", fn_addr, arg_addr)
             }
-            &HeapNode::HeapNodeSupercomb(ref sc_defn) => {
+            &HeapNode::Supercombinator(ref sc_defn) => {
                 write!(fmt, "H-{:#?}", sc_defn)
             },
-            &HeapNode::HeapNodeNum(ref num)  => {
+            &HeapNode::Num(ref num)  => {
                 write!(fmt, "H-{}", num)
             }
-            &HeapNode::HeapNodeIndirection(ref addr)  => {
+            &HeapNode::Indirection(ref addr)  => {
                 write!(fmt, "H-indirection-{}", addr)
             }
-            &HeapNode::HeapNodePrimitive(ref name, ref primop)  => {
+            &HeapNode::Primitive(ref name, ref primop)  => {
                 write!(fmt, "H-prim-{} {:#?}", name, primop)
             }
         }
@@ -130,7 +130,7 @@ impl fmt::Debug for HeapNode {
 impl HeapNode {
     fn is_data_node(&self) -> bool {
         match self {
-            &HeapNode::HeapNodeNum(_) => true,
+            &HeapNode::Num(_) => true,
             _ => false
         }
     }
@@ -187,7 +187,7 @@ struct Heap {
 }
 
 impl fmt::Debug for Heap {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         let mut keyvals : Vec<(&Addr, &HeapNode)> = self.heap.iter().collect();
         keyvals.sort_by(|a, b| a.0.cmp(b.0));
 
@@ -252,15 +252,15 @@ struct Machine {
 
 fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
     match node {
-        &HeapNode::HeapNodeIndirection(addr) => format!("indirection: {}", addr),
-        &HeapNode::HeapNodeNum(num) => format!("{}", num),
-        &HeapNode::HeapNodePrimitive(ref name, 
+        &HeapNode::Indirection(addr) => format!("indirection: {}", addr),
+        &HeapNode::Num(num) => format!("{}", num),
+        &HeapNode::Primitive(ref name, 
                                      ref primop) => format!("prim-{}-{:#?}", name, primop),
-        &HeapNode::HeapNodeAp{ref fn_addr, ref arg_addr} => 
+        &HeapNode::Application{ref fn_addr, ref arg_addr} => 
             format!("({} $ {})",
                     format_heap_node(m, env, &m.heap.get(fn_addr)),
                     format_heap_node(m, env, &m.heap.get(arg_addr))),
-        &HeapNode::HeapNodeSupercomb(ref sc_defn) =>  {
+        &HeapNode::Supercombinator(ref sc_defn) =>  {
             let mut sc_str = String::new();
             write!(&mut sc_str, "{}", sc_defn.name).unwrap();
             sc_str
@@ -323,7 +323,7 @@ fn heap_build_initial(sc_defs: CoreProgram, prims: Vec<(Name, MachinePrimOp)>) -
     for sc_def in sc_defs.iter() {
         //create a heap node for the supercombinator definition
         //and insert it
-        let node = HeapNode::HeapNodeSupercomb(sc_def.clone());
+        let node = HeapNode::Supercombinator(sc_def.clone());
         let addr = heap.alloc(node);
 
         //insert it into the globals, binding the name to the
@@ -332,7 +332,7 @@ fn heap_build_initial(sc_defs: CoreProgram, prims: Vec<(Name, MachinePrimOp)>) -
     }
 
     for (name, prim_op) in prims.into_iter() {
-        let addr = heap.alloc(HeapNode::HeapNodePrimitive(name.clone(),
+        let addr = heap.alloc(HeapNode::Primitive(name.clone(),
                                                           prim_op));
         globals.insert(name, addr);
     }
@@ -417,7 +417,7 @@ impl Machine {
 
                 let application = heap.get(application_addr);
                 let param_addr = match application {
-                    HeapNode::HeapNodeAp{arg_addr, ..} => arg_addr,
+                    HeapNode::Application{arg_addr, ..} => arg_addr,
                     _ => panic!(concat!("did not find application node when ",
                                         "unwinding stack for supercombinator"))
                 };
@@ -427,34 +427,62 @@ impl Machine {
         env
     }
 
+    fn run_primitive_negate(&mut self) -> Bindings {
+        //pop the primitive off
+        self.stack.pop();
+
+        //pop off function application node
+        let ap_addr = self.stack.peek();
+
+        if let HeapNode::Application{ref arg_addr, ..} = self.heap.get(&ap_addr) {
+            let arg = self.heap.get(arg_addr);
+
+            match arg {
+                HeapNode::Num(n) => {
+                    self.heap.rewrite(&ap_addr, HeapNode::Num(-n))
+                }
+                _ => panic!("unimplemented negate")
+            
+            };
+            
+            self.globals.clone()
+
+        }
+        else {
+            panic!("expected application node")
+        }
+
+    
+    }
+
     //actually run_step the computation
     fn run_step(&mut self, heap_val: &HeapNode) -> Bindings {
         match heap_val {
-            &HeapNode::HeapNodeNum(n) => 
+            &HeapNode::Num(n) => 
                 panic!("number applied as a function: {}", n),
 
-            &HeapNode::HeapNodeAp{fn_addr, ..} => {
+            &HeapNode::Application{fn_addr, ..} => {
                 //push function address over the function
                 self.stack.push(fn_addr);
                 self.globals.clone()
             }
-            &HeapNode::HeapNodeIndirection(ref addr) => {
+            &HeapNode::Indirection(ref addr) => {
                 //simply ignore an indirection during execution, and
                 //push the indirected value on the stack
                 self.stack.pop();
                 self.stack.push(*addr);
                 self.globals.clone()
             }
-            &HeapNode::HeapNodePrimitive(ref name, ref prim) => {
-                //pop out the primitive
-                self.stack.pop();
+            &HeapNode::Primitive(ref name, ref prim) => {
                 
-                //fn application for primitive
-                let ap = self.heap.get(&self.stack.pop());
-                self.globals.clone()
+                match prim {
+                    &MachinePrimOp::Negate => self.run_primitive_negate(),
+                    _ => panic!("unimplemented")
+                }
+
 
             }
-            &HeapNode::HeapNodeSupercomb(ref sc_defn) => {
+            &HeapNode::Supercombinator(ref sc_defn) => {
 
                 //pop the supercombinator
                 let sc_addr = self.stack.pop();
@@ -498,7 +526,7 @@ impl Machine {
                                                      "has >= 1 parameter"))
                         }
                     };
-                    self.heap.rewrite(&full_call_addr, HeapNode::HeapNodeIndirection(new_alloc_addr));
+                    self.heap.rewrite(&full_call_addr, HeapNode::Indirection(new_alloc_addr));
                 }
                 env
             }
@@ -511,7 +539,7 @@ impl Machine {
                           mut heap: &mut Heap) {
 
         match heap.get(&edit_addr) {
-            HeapNode::HeapNodeAp{fn_addr, arg_addr} => {
+            HeapNode::Application{fn_addr, arg_addr} => {
                 let new_fn_addr = if fn_addr == old_addr {
                     new_addr
                 } else {
@@ -543,21 +571,21 @@ impl Machine {
                 };
 
                 heap.rewrite(&edit_addr,
-                             HeapNode::HeapNodeAp{
+                             HeapNode::Application{
                                  fn_addr: new_fn_addr, 
                                  arg_addr: new_arg_addr
                              });
             
             },
-            HeapNode::HeapNodeIndirection(ref addr) => 
+            HeapNode::Indirection(ref addr) => 
                 Machine::rebind_vars_to_env(old_addr,
                                    new_addr,
                                    *addr,
                                    &mut heap),
 
-            HeapNode::HeapNodePrimitive(_, _) => {}
-            HeapNode::HeapNodeSupercomb(_) => {}
-            HeapNode::HeapNodeNum(_) => {},
+            HeapNode::Primitive(_, _) => {}
+            HeapNode::Supercombinator(_) => {}
+            HeapNode::Num(_) => {},
         }
 
     }
@@ -622,12 +650,12 @@ impl Machine {
                 }
 
             }
-            CoreExpr::Num(x) => self.heap.alloc(HeapNode::HeapNodeNum(x)),
+            CoreExpr::Num(x) => self.heap.alloc(HeapNode::Num(x)),
             CoreExpr::Application(fn_expr, arg_expr) => {
                 let fn_addr = self.instantiate(*fn_expr, env);
                 let arg_addr = self.instantiate(*arg_expr, env);
 
-                self.heap.alloc(HeapNode::HeapNodeAp {
+                self.heap.alloc(HeapNode::Application {
                                     fn_addr: fn_addr, 
                                     arg_addr: arg_addr
                 })
@@ -1215,10 +1243,22 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
     Result::Ok(program)
 }
 
+#[test]
+fn test_skk3() {
+    let main = string_to_program("main = S K K 3".to_string())
+               .unwrap()
+               .remove(0);
+    let mut m = Machine::new(vec![main]);
+    while !machine_is_final_state(&m) {
+        m.step();
+    }
+    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(3))
+}
+
 // main ---
 fn main() {
     
-    let main = string_to_program("main = letrec x = 3; y = x; z = y in x".to_string()).unwrap().remove(0);
+    let main = string_to_program("main = letrec x = 3; y = x; z = y in (negate x)".to_string()).unwrap().remove(0);
     let mut m = Machine::new(vec![main]);
     
     let mut i = 1;
