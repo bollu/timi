@@ -138,11 +138,43 @@ impl HeapNode {
 
 
 //unsued for mark 1
-#[derive(Clone, Debug)]
-struct Dump {}
+// a dump is a vector of stacks
+type Dump = Vec<Stack>;
 
 //stack of addresses of nodes. "Spine"
-type Stack = Vec<Addr>;
+#[derive(Clone,PartialEq,Eq,Debug)]
+struct Stack {
+    stack: Vec<Addr>
+}
+
+impl Stack {
+    fn new() -> Stack {
+        Stack {
+            stack: Vec::new(),
+        }        
+    }
+
+    fn len(&self) -> usize {
+        self.stack.len()
+    }
+
+    fn push(&mut self, addr: Addr) {
+        self.stack.push(addr)
+    }
+
+    fn pop(&mut self) -> Addr {
+        self.stack.pop().expect("top of stack is empty")
+    }
+
+    fn peek(&self) -> Addr {
+        self.stack.last().expect("top of stack is empty to peek").clone()
+    }
+
+    fn iter(&self) -> std::slice::Iter<Addr> {
+        self.stack.iter()
+    }
+
+}
 
 //maps names to addresses in the heap
 type Bindings = HashMap<Name, Addr>;
@@ -185,8 +217,11 @@ impl Heap {
         addr
     }
 
-    fn get(&self, addr: &Addr) -> Option<HeapNode> {
-        self.heap.get(&addr).cloned()
+    fn get(&self, addr: &Addr) -> HeapNode {
+        self.heap
+            .get(&addr)
+            .cloned()
+            .expect(&format!("expected heap node at addess: {}", addr))
     }
 
     fn rewrite(&mut self, addr: &Addr, node: HeapNode) {
@@ -223,8 +258,8 @@ fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
                                      ref primop) => format!("prim-{}-{:#?}", name, primop),
         &HeapNode::HeapNodeAp{ref fn_addr, ref arg_addr} => 
             format!("({} $ {})",
-                    format_heap_node(m, env, &m.heap.get(fn_addr).unwrap()),
-                    format_heap_node(m, env, &m.heap.get(arg_addr).unwrap())),
+                    format_heap_node(m, env, &m.heap.get(fn_addr)),
+                    format_heap_node(m, env, &m.heap.get(arg_addr))),
         &HeapNode::HeapNodeSupercomb(ref sc_defn) =>  {
             let mut sc_str = String::new();
             write!(&mut sc_str, "{}", sc_defn.name).unwrap();
@@ -244,10 +279,7 @@ fn print_machine(m: &Machine, env: &Bindings) {
                *addr,
                format_heap_node(m, 
                                 env,
-                                &m.heap.get(addr)
-                                .expect(&format!("\nunable to find value\
-                                                at {} on heap {:#?}: \n",
-                                                addr, m.heap))));
+                                &m.heap.get(addr)));
     }
     print!( "## bottom ##\n");
 
@@ -259,7 +291,7 @@ fn print_machine(m: &Machine, env: &Bindings) {
     let mut env_ordered : Vec<(&Name, &Addr)> = env.iter().collect();
     env_ordered.sort_by(|e1, e2| e1.0.cmp(e2.0));
     for &(name, addr) in env_ordered.iter() {
-        print!("{} => {}\n", name, format_heap_node(m, env, &m.heap.get(addr).unwrap()));
+        print!("{} => {}\n", name, format_heap_node(m, env, &m.heap.get(addr)));
     }
 }
 
@@ -327,10 +359,10 @@ impl Machine {
         }.clone();
 
         Machine {
-            dump: Dump{},
+            dump: Vec::new(),
             //stack has addr main on top
             stack:  {
-                let mut s = Vec::new();
+                let mut s = Stack::new();
                 s.push(main_addr);
                 s
             },
@@ -345,17 +377,9 @@ impl Machine {
     //returns bindings of this run
     fn step(&mut self) -> Bindings {
         //top of stack
-        let tos_addr : Addr = match self.stack.last() {
-            Some(addr) => *addr,
-            None => panic!("unable to step: top of stack empty")
-        };
-
-        let heap_node = match self.heap.get(&tos_addr)  {
-            Some(node) => node,
-            None => panic!("heap access violation")
-        };
-        
-        self.run_step(&heap_node)
+        let tos_addr : Addr = self.stack.peek();
+        let heap_val = self.heap.get(&tos_addr);
+        self.run_step(&heap_val)
     }
 
     //make an environment for the execution of the supercombinator
@@ -391,7 +415,7 @@ impl Machine {
         for (arg_name, application_addr) in 
                 sc_defn.args.iter().zip(stack_args.iter()) {
 
-                let application = heap.get(application_addr).unwrap();
+                let application = heap.get(application_addr);
                 let param_addr = match application {
                     HeapNode::HeapNodeAp{arg_addr, ..} => arg_addr,
                     _ => panic!(concat!("did not find application node when ",
@@ -422,12 +446,18 @@ impl Machine {
                 self.globals.clone()
             }
             &HeapNode::HeapNodePrimitive(ref name, ref prim) => {
-                panic!("do not know how to run prim");
+                //pop out the primitive
+                self.stack.pop();
+                
+                //fn application for primitive
+                let ap = self.heap.get(&self.stack.pop());
+                self.globals.clone()
+
             }
             &HeapNode::HeapNodeSupercomb(ref sc_defn) => {
 
                 //pop the supercombinator
-                let sc_addr = self.stack.pop().expect("stack must have value");
+                let sc_addr = self.stack.pop();
 
                 //the arguments are the stack 
                 //values below the supercombinator. There
@@ -435,7 +465,7 @@ impl Machine {
                 let arg_addrs = {
                     let mut addrs = Vec::new();
                     for _ in 0..sc_defn.args.len() {
-                        addrs.push(self.stack.pop().unwrap());
+                        addrs.push(self.stack.pop());
                     }
                     addrs
                 };
@@ -480,9 +510,7 @@ impl Machine {
                           edit_addr: Addr,
                           mut heap: &mut Heap) {
 
-        match heap.get(&edit_addr)
-            .expect(&format!("unable to find edit address: {} in heap: {:#?}", edit_addr, heap))
-            {
+        match heap.get(&edit_addr) {
             HeapNode::HeapNodeAp{fn_addr, arg_addr} => {
                 let new_fn_addr = if fn_addr == old_addr {
                     new_addr
@@ -533,39 +561,29 @@ impl Machine {
         }
 
     }
-    
+
     fn instantiate(&mut self, expr: CoreExpr, env: &Bindings) -> Addr {
         match expr {
-            
              CoreExpr::Let(CoreLet{expr: let_rhs, bindings, is_rec}) => {
                 let mut let_env : Bindings = env.clone();
-                let mut old_addrs: Vec<Addr> = Vec::new();
-                
 
                 if is_rec {
                     //TODO: change this to zip() with range
                     
                     let mut addr = -1;
                     //first create dummy indeces for all LHS
-                    for &(ref bind_name, _) in bindings.iter() {
+                    for &(ref bind_name, _) in bindings.iter()  {
                         let_env.insert(bind_name.clone(), addr);
-                        old_addrs.push(addr);
                         addr -= 1;
                     }
 
                     let mut old_to_new_addr: HashMap<Addr, Addr> = HashMap::new();
-
-                    let mut new_addrs: Vec<Addr> = Vec::new();
 
                     //instantiate RHS, while storing legit
                     //LHS addresses
                     //TODO: cleanup, check if into_iter is sufficient
                     for &(ref bind_name, ref bind_expr) in bindings.iter() {
                         let new_addr = self.instantiate(*bind_expr.clone(), &let_env); 
-
-                        new_addrs.push(new_addr);
-
-
 
                         let old_addr = let_env
                                         .get(bind_name)
@@ -629,19 +647,12 @@ impl Machine {
 
 
 fn machine_is_final_state(m: &Machine) -> bool {
-    match m.stack.last() {
-        Some(addr) => {
-           //machine has more than 1 address, just return false
-           if m.stack.len() > 1 {
-                false
-           } else {
-                match  m.heap.get(addr) {
-                    Some(node) => node.is_data_node(),
-                    None => panic!("top of stack points to invalid address")
-                }
-           }
-        }
-        None => panic!("stack empty")
+    assert!(m.stack.len() > 0, "expect stack to have at least 1 node");
+
+    if m.stack.len() > 1 {
+        false
+    } else {
+        m.heap.get(&m.stack.peek()).is_data_node()
     }
 
 }
