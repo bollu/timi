@@ -445,8 +445,10 @@ impl Machine {
         //pop the primitive off
         let negate_prim_addr = self.stack.pop();
 
-        //pop off function application node
+        //we rewrite this addres in case of
+        //a raw number
         let neg_ap_addr = self.stack.peek();
+
         //Apply <negprim> <argument>
         //look at what argument is and dispatch work
         if let HeapNode::Application{ref arg_addr, ref fn_addr} = self.heap.get(&neg_ap_addr) {
@@ -481,6 +483,74 @@ impl Machine {
         }
     }
 
+
+
+    fn run_primitive_arith_binop(&mut self, handler: fn (a: i32, b: i32) -> HeapNode) {
+        let stack_copy = self.stack.clone();
+
+        //stack will be like
+
+        //top--v
+        //+
+        //(+ a)
+        //(+ a) b
+        //bottom-^
+
+        //fully eval a, b
+        //then do stuff
+
+        //pop off operator
+        self.stack.pop();
+
+
+        //pop out (Ap (Prim +) a)
+        let left_arg_addr = if let HeapNode::Application{arg_addr: left_arg_addr, ..} = self.heap.get(&self.stack.pop()) {
+            left_arg_addr
+        }
+        else {
+            panic!("expected function application of the form (+ a)");
+        };
+
+        match self.heap.get(&left_arg_addr) {
+            HeapNode::Num(n_left) => {
+                //do the same process for right argument
+                //peek (+ a) b
+                //we peek, since in the case where (+ a) b can be reduced,
+                //we simply rewrite the node (+ a b) with the final value (instead of creating a fresh node)
+                let binop_ap_addr = self.stack.peek();
+                let binop_arg_addr = if let HeapNode::Application{arg_addr: right_arg_addr, ..} = self.heap.get(&binop_ap_addr) {
+                    right_arg_addr
+                }
+                else {
+                    panic!("expected function application of the form ((+ a) b)");
+                };
+
+                match self.heap.get(&binop_arg_addr) {
+                    HeapNode::Num(n_right) => {
+                        self.heap.rewrite(&binop_ap_addr, handler(n_left, n_right));
+                    }
+                    HeapNode::Indirection(ind_addr) => {
+                        panic!("not handling indirection")
+                    }
+                    other @ _ => {
+                        self.dump_stack(stack_copy);
+                        self.stack.push(binop_arg_addr);
+                    }
+
+                }
+            }
+            HeapNode::Indirection(ind_addr) => {
+                panic!("not handling indirection")
+            }
+            other @ _ => {
+                self.dump_stack(stack_copy);
+                self.stack.push(left_arg_addr);
+            }
+
+        } //close left_arg_addr pattern match
+
+    } //close fn
+
     fn dump_stack(&mut self, stack: Stack) {
         self.dump.push(stack);
         self.stack = Stack::new();
@@ -505,9 +575,16 @@ impl Machine {
                 self.globals.clone()
             }
             &HeapNode::Primitive(ref name, ref prim) => {
+                fn plus_handler(a: i32, b: i32) -> HeapNode {
+                     HeapNode::Num(a + b)
+                };
 
                 match prim {
                     &MachinePrimOp::Negate => self.run_primitive_negate(),
+                    &MachinePrimOp::Add => {
+                        self.run_primitive_arith_binop(plus_handler);
+                        self.globals.clone()
+                    }
                     _ => panic!("unimplemented")
                 }
 
@@ -1143,9 +1220,38 @@ fn parse_mul_div(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> 
     parse_application(&mut cursor)
 }
 
-
+//TODO: refactor this and add_relop to share code of branching and stuff
 fn parse_add_sub(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
-    parse_mul_div(&mut cursor)
+    let mul_div_lhs : CoreExpr = try!(parse_mul_div(&mut cursor));
+
+    let c : CoreToken = cursor.peek();
+
+    let mul_div_rhs : CoreExpr = {
+        if c == CoreToken::Plus {
+            cursor.expect(CoreToken::Plus);
+            try!(parse_mul_div(&mut cursor))
+        }
+        else {
+            return Result::Ok(mul_div_lhs)
+        }
+    };
+
+    let operator : CoreExpr = {
+        if c == CoreToken::Plus {
+            CoreExpr::Variable("+".to_string())
+        }
+        else {
+            panic!("unknown token for add sub: {:#?}", c)
+        }
+    };
+
+    let ap_inner =
+        CoreExpr::Application(Box::new(operator), Box::new(mul_div_lhs));
+
+    Result::Ok(CoreExpr::Application(Box::new(ap_inner),
+                                     Box::new(mul_div_rhs)))
+
+
 }
 
 fn parse_relop(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
@@ -1276,16 +1382,60 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
     Result::Ok(program)
 }
 
-#[test]
-fn test_skk3() {
-    let main = string_to_program("main = S K K 3".to_string())
+
+fn run_machine(program:  &str) -> Machine {
+    let main = string_to_program(program.to_string())
                .unwrap()
                .remove(0);
     let mut m = Machine::new(vec![main]);
     while !machine_is_final_state(&m) {
         m.step();
     }
-    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(3))
+    return m
+}
+
+#[test]
+fn test_skk3() {
+    let m = run_machine("main = S K K 3");
+    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(3));
+}
+
+#[test]
+fn test_negate_simple() {
+    let m = run_machine("main = negate 1");
+    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(-1));
+}
+
+#[test]
+fn test_negate_inner_ap() {
+    let m = run_machine("main = negate (negate 1)");
+    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(1));
+}
+
+
+#[test]
+fn test_add_simple() {
+    let m = run_machine("main = 1 + 1");
+    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(2));
+}
+
+#[test]
+fn test_add_lhs_ap() {
+    let m = run_machine("main = (negate 1) + 1");
+    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(0));
+}
+
+
+#[test]
+fn test_add_rhs_ap() {
+    let m = run_machine("main = 1 + (negate 3)");
+    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(-2));
+}
+
+#[test]
+fn test_add_lhs_rhs_ap() {
+    let m = run_machine("main = (negate 1) + (negate 3)");
+    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(-4));
 }
 
 // main ---
