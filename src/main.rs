@@ -19,6 +19,8 @@ struct CoreLet {
     expr: Box<CoreExpr>
 }
 
+
+
 #[derive(Clone, PartialEq, Eq)]
 enum CoreExpr {
     //change this?
@@ -34,7 +36,7 @@ impl fmt::Debug for CoreExpr {
         match self {
             &CoreExpr::Variable(ref name) => write!(fmt, "{}", name),
             &CoreExpr::Num(ref num) => write!(fmt, "n_{}", num),
-            &CoreExpr::Application(ref e1, ref e2) => 
+            &CoreExpr::Application(ref e1, ref e2) =>
                 write!(fmt, "({:#?} $ {:#?})", *e1, *e2),
             &CoreExpr::Let(CoreLet{ref is_rec, ref bindings, ref expr}) => {
                 if *is_rec {
@@ -151,7 +153,7 @@ impl Stack {
     fn new() -> Stack {
         Stack {
             stack: Vec::new(),
-        }        
+        }
     }
 
     fn len(&self) -> usize {
@@ -207,12 +209,12 @@ impl Heap {
             next_addr: 0
         }
     }
-    
+
     //allocate the HeapNode on the heap
     fn alloc(&mut self, node: HeapNode) -> Addr {
         let addr = self.next_addr;
         self.next_addr += 1;
-        
+
         self.heap.insert(addr, node);
         addr
     }
@@ -254,9 +256,9 @@ fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
     match node {
         &HeapNode::Indirection(addr) => format!("indirection: {}", addr),
         &HeapNode::Num(num) => format!("{}", num),
-        &HeapNode::Primitive(ref name, 
+        &HeapNode::Primitive(ref name,
                                      ref primop) => format!("prim-{}-{:#?}", name, primop),
-        &HeapNode::Application{ref fn_addr, ref arg_addr} => 
+        &HeapNode::Application{ref fn_addr, ref arg_addr} =>
             format!("({} $ {})",
                     format_heap_node(m, env, &m.heap.get(fn_addr)),
                     format_heap_node(m, env, &m.heap.get(arg_addr))),
@@ -264,7 +266,7 @@ fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
             let mut sc_str = String::new();
             write!(&mut sc_str, "{}", sc_defn.name).unwrap();
             sc_str
-        
+
         }
     }
 }
@@ -277,7 +279,7 @@ fn print_machine(m: &Machine, env: &Bindings) {
     for addr in m.stack.iter().rev() {
         print!("heap[{}] :  {}\n",
                *addr,
-               format_heap_node(m, 
+               format_heap_node(m,
                                 env,
                                 &m.heap.get(addr)));
     }
@@ -351,7 +353,7 @@ impl Machine {
 
         let (initial_heap, globals) = heap_build_initial(sc_defs,
                                                          get_primitives());
-        
+
         //get main out of the heap
         let main_addr : Addr = match globals.get("main") {
             Some(main) => main,
@@ -373,13 +375,22 @@ impl Machine {
             }
         }
     }
-    
+
     //returns bindings of this run
     fn step(&mut self) -> Bindings {
         //top of stack
         let tos_addr : Addr = self.stack.peek();
         let heap_val = self.heap.get(&tos_addr);
-        self.run_step(&heap_val)
+
+
+        //there is something on the dump that wants to use this
+        //data node, so pop it back.
+        if heap_val.is_data_node() && self.dump.len() > 0 {
+            self.stack = self.dump.pop().unwrap();
+            self.globals.clone()
+        } else {
+            self.run_step(&heap_val)
+        }
     }
 
     //make an environment for the execution of the supercombinator
@@ -412,7 +423,7 @@ impl Machine {
          * binding the RHS to the function parameter names.
          *
          */
-        for (arg_name, application_addr) in 
+        for (arg_name, application_addr) in
                 sc_defn.args.iter().zip(stack_args.iter()) {
 
                 let application = heap.get(application_addr);
@@ -422,43 +433,63 @@ impl Machine {
                                         "unwinding stack for supercombinator"))
                 };
             env.insert(arg_name.clone(), param_addr);
-    
+
         }
         env
     }
 
     fn run_primitive_negate(&mut self) -> Bindings {
+        //we need a copy of the stack to push into the dump
+        let stack_copy = self.stack.clone();
+
         //pop the primitive off
-        self.stack.pop();
+        let negate_prim_addr = self.stack.pop();
 
         //pop off function application node
-        let ap_addr = self.stack.peek();
-
-        if let HeapNode::Application{ref arg_addr, ..} = self.heap.get(&ap_addr) {
+        let neg_ap_addr = self.stack.peek();
+        //Apply <negprim> <argument>
+        //look at what argument is and dispatch work
+        if let HeapNode::Application{ref arg_addr, ref fn_addr} = self.heap.get(&neg_ap_addr) {
             let arg = self.heap.get(arg_addr);
+            assert!(*fn_addr == negate_prim_addr, concat!("expected the function being called to be",
+                                                         "the negate primitive"));
 
             match arg {
                 HeapNode::Num(n) => {
-                    self.heap.rewrite(&ap_addr, HeapNode::Num(-n))
+                    //rewrite the function application (current thing)
+                    self.heap.rewrite(&neg_ap_addr, HeapNode::Num(-n))
                 }
-                _ => panic!("unimplemented negate")
-            
-            };
-            
+                HeapNode::Indirection(ind_addr) => {
+                    //pop off the application and then create a new
+                    //application that does into the indirection address
+                    self.heap.rewrite(&neg_ap_addr, HeapNode::Application{fn_addr: *fn_addr,
+                                                                          arg_addr: ind_addr});
+
+                }
+                other @ _ => {
+                    self.dump_stack(stack_copy);
+                    self.stack.push(*arg_addr);
+                }
+
+            }
+
             self.globals.clone()
 
         }
         else {
             panic!("expected application node")
         }
+    }
 
-    
+    fn dump_stack(&mut self, stack: Stack) {
+        self.dump.push(stack);
+        self.stack = Stack::new();
     }
 
     //actually run_step the computation
     fn run_step(&mut self, heap_val: &HeapNode) -> Bindings {
         match heap_val {
-            &HeapNode::Num(n) => 
+            &HeapNode::Num(n) =>
                 panic!("number applied as a function: {}", n),
 
             &HeapNode::Application{fn_addr, ..} => {
@@ -474,7 +505,7 @@ impl Machine {
                 self.globals.clone()
             }
             &HeapNode::Primitive(ref name, ref prim) => {
-                
+
                 match prim {
                     &MachinePrimOp::Negate => self.run_primitive_negate(),
                     _ => panic!("unimplemented")
@@ -487,7 +518,7 @@ impl Machine {
                 //pop the supercombinator
                 let sc_addr = self.stack.pop();
 
-                //the arguments are the stack 
+                //the arguments are the stack
                 //values below the supercombinator. There
                 //are (n = arity of supercombinator) arguments
                 let arg_addrs = {
@@ -560,7 +591,7 @@ impl Machine {
                                                 new_addr,
                                                 fn_addr,
                                                 &mut heap);
-                
+
                 };
 
                 if arg_addr != old_addr {
@@ -572,12 +603,12 @@ impl Machine {
 
                 heap.rewrite(&edit_addr,
                              HeapNode::Application{
-                                 fn_addr: new_fn_addr, 
+                                 fn_addr: new_fn_addr,
                                  arg_addr: new_arg_addr
                              });
-            
+
             },
-            HeapNode::Indirection(ref addr) => 
+            HeapNode::Indirection(ref addr) =>
                 Machine::rebind_vars_to_env(old_addr,
                                    new_addr,
                                    *addr,
@@ -597,7 +628,7 @@ impl Machine {
 
                 if is_rec {
                     //TODO: change this to zip() with range
-                    
+
                     let mut addr = -1;
                     //first create dummy indeces for all LHS
                     for &(ref bind_name, _) in bindings.iter()  {
@@ -611,7 +642,7 @@ impl Machine {
                     //LHS addresses
                     //TODO: cleanup, check if into_iter is sufficient
                     for &(ref bind_name, ref bind_expr) in bindings.iter() {
-                        let new_addr = self.instantiate(*bind_expr.clone(), &let_env); 
+                        let new_addr = self.instantiate(*bind_expr.clone(), &let_env);
 
                         let old_addr = let_env
                                         .get(bind_name)
@@ -632,8 +663,8 @@ impl Machine {
                                                         *new,
                                                         *to_edit_addr,
                                                         &mut self.heap);
-                        } 
-                    
+                        }
+
                     }
 
                     print!("letrec env:\n {:#?}", let_env);
@@ -646,7 +677,7 @@ impl Machine {
                         let_env.insert(bind_name.clone(), addr);
                     }
                     self.instantiate(*let_rhs, &let_env)
-                
+
                 }
 
             }
@@ -656,10 +687,10 @@ impl Machine {
                 let arg_addr = self.instantiate(*arg_expr, env);
 
                 self.heap.alloc(HeapNode::Application {
-                                    fn_addr: fn_addr, 
+                                    fn_addr: fn_addr,
                                     arg_addr: arg_addr
                 })
-                
+
             },
             CoreExpr::Variable(vname) => {
                 match env.get(&vname) {
@@ -680,7 +711,9 @@ fn machine_is_final_state(m: &Machine) -> bool {
     if m.stack.len() > 1 {
         false
     } else {
-        m.heap.get(&m.stack.peek()).is_data_node()
+        let dump_empty = m.dump.len() == 0;
+        m.heap.get(&m.stack.peek()).is_data_node() &&
+            dump_empty
     }
 
 }
@@ -691,8 +724,8 @@ fn machine_is_final_state(m: &Machine) -> bool {
 enum ParseError {
     NoTokens,
     UnknownSymbol,
-    UnexpectedToken { 
-        expected: Vec<CoreToken>, 
+    UnexpectedToken {
+        expected: Vec<CoreToken>,
         found: CoreToken
     },
     ParseErrorStr(String),
@@ -747,7 +780,7 @@ impl ParserCursor {
                 Some(tok) => tok,
                 None => CoreToken::PeekNoToken
             }
-            
+
     }
 
     fn consume(&mut self) -> Result<CoreToken, ParseError> {
@@ -816,12 +849,12 @@ fn tokenize(program: String) -> Vec<CoreToken> {
             }
             i += 1;
         }
-        
+
         //we have a character
         if let Some(& c) = char_arr.get(i) {
             //alphabet: parse literal
             if c.is_alphabetic() {
-                
+
                 //get the identifier name
                 let mut id_string = String::new();
 
@@ -839,7 +872,7 @@ fn tokenize(program: String) -> Vec<CoreToken> {
             else if c.is_numeric() {
                 //parse the number
                 //TODO: take care of floats
-                
+
                 let mut num_string = String::new();
 
                 while let Some(&c) = char_arr.get(i) {
@@ -850,15 +883,15 @@ fn tokenize(program: String) -> Vec<CoreToken> {
                         break;
                     }
                 }
-                    
+
                 tokens.push(CoreToken::Integer(num_string));
-            
+
             }
             else {
-                assert!(is_char_symbol(c), 
+                assert!(is_char_symbol(c),
                         format!("{} is not charcter, digit or symbol", c));
 
-                let symbol_token_map: HashMap<&str, CoreToken> = 
+                let symbol_token_map: HashMap<&str, CoreToken> =
                         [("=", CoreToken::Equals),
                          (";", CoreToken::Semicolon),
                          ("(", CoreToken::OpenRoundBracket),
@@ -916,31 +949,31 @@ fn tokenize(program: String) -> Vec<CoreToken> {
                 i += longest_taken_length;
 
 
-                
+
 
             }
-        
+
         }
-    
+
     }
-    
+
     tokens
 
 }
 
 
 //TODO: write an infix parser for equals
-//this is now totally possible since (=) is used to parse only 
+//this is now totally possible since (=) is used to parse only
 //<var> = <defn> for let expressions.
 
 
 /*
-fn parse_defn(mut c: &mut ParserCursor, p: &Parser) -> 
+fn parse_defn(mut c: &mut ParserCursor, p: &Parser) ->
     Result<(CoreVariable, Box<CoreExpr>), ParseError> {
 
     if let CoreToken::Ident(name) =  try!(c.consume()) {
         try!(c.expect(CoreToken::Equals));
-        
+
         print!("found = ");
         if let CoreAST::Expr(rhs) = try!(p.parse(&mut c, 0)) {
             return Result::Ok((name, Box::new(rhs)))
@@ -948,7 +981,7 @@ fn parse_defn(mut c: &mut ParserCursor, p: &Parser) ->
         else {
             panic!("expected expr at let binding rhs");
         }
-    
+
     }
     else {
         panic!("variable name expected at defn");
@@ -975,7 +1008,7 @@ fn parse_atomic_expr(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
         CoreToken::Integer(num_str) => {
             try!(c.consume());
             let num = try!(i32::from_str_radix(&num_str, 10)
-                           .map_err(|_| 
+                           .map_err(|_|
                                     ParseError::ParseErrorStr(
                                         format!("unable to parse {} as int",
                                                 num_str).to_string())));
@@ -991,23 +1024,23 @@ fn parse_atomic_expr(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
             try!(c.expect(CoreToken::CloseRoundBracket));
             Result::Ok(inner_expr)
         },
-        other @ _ => 
+        other @ _ =>
             panic!("expected integer, identifier or (<expr>), found {:#?}", other)
     }
 
 }
 
 //defn := <variable> "=" <expr>
-fn parse_defn(mut c: &mut ParserCursor) -> 
+fn parse_defn(mut c: &mut ParserCursor) ->
     Result<(CoreVariable, Box<CoreExpr>), ParseError> {
 
     if let CoreToken::Ident(name) = c.peek() {
         try!(c.consume());
         try!(c.expect(CoreToken::Equals));
-        
+
         let rhs : CoreExpr = try!(parse_expr(&mut c));
         Result::Ok((name, Box::new(rhs)))
-    
+
     }
     else {
         panic!("variable name expected at defn");
@@ -1029,7 +1062,7 @@ fn parse_let(mut c: &mut ParserCursor) -> Result<CoreLet, ParseError> {
     loop {
         let defn = try!(parse_defn(&mut c));
         bindings.push(defn);
-            
+
         //check for ;
         //If htere is a ;, continue parsing
         if let CoreToken::Semicolon = c.peek() {
@@ -1045,11 +1078,11 @@ fn parse_let(mut c: &mut ParserCursor) -> Result<CoreLet, ParseError> {
 
     //<expr>
     let rhs_expr = try!(parse_expr(c));
-    
+
     let is_rec : bool = match let_token {
         CoreToken::Let => false,
         CoreToken::LetRec => true,
-        other @ _ => 
+        other @ _ =>
             return Result::Err(ParseError::UnexpectedToken {
             expected: vec![CoreToken::Let, CoreToken::LetRec],
             found: other.clone()
@@ -1080,7 +1113,7 @@ fn parse_application(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseErr
             ParseError::ParseErrorStr(
                 concat!("wanted function application or atomic expr",
                         "found neither").to_string()))
-    
+
     }
     else if application_vec.len() == 1 {
         //just an atomic expr
@@ -1128,17 +1161,17 @@ fn parse_relop(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
         }
     };
 
-    let operator : CoreExpr = 
+    let operator : CoreExpr =
         if c == CoreToken::L {
             CoreExpr::Variable("<".to_string())
         } else {
             panic!("unknown token for relop: {:#?}", c)
         };
-    
 
-    let ap_inner = 
+
+    let ap_inner =
         CoreExpr::Application(Box::new(operator), Box::new(add_sub_lhs));
-    
+
     Result::Ok(CoreExpr::Application(Box::new(ap_inner),
                                      Box::new(add_sub_rhs)))
 
@@ -1160,7 +1193,7 @@ fn parse_or(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
         let and_rhs = try!(parse_and(&mut cursor));
 
         let or_val = CoreExpr::Variable("|".to_string());
-        let ap_inner = 
+        let ap_inner =
             CoreExpr::Application(Box::new(or_val),
                                   Box::new(and_lhs));
 
@@ -1200,12 +1233,12 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
 
             let mut sc_args = Vec::new();
             //<args>* = <expr>
-            while cursor.peek() != CoreToken::Equals && 
+            while cursor.peek() != CoreToken::Equals &&
                   cursor.peek() != CoreToken::PeekNoToken {
                 if let CoreToken::Ident(sc_arg) = cursor.peek() {
                     try!(cursor.consume());
                     sc_args.push(sc_arg);
-                
+
                 }
                 else {
                     panic!("super combinator argument expected, {:#?} encountered",
@@ -1234,7 +1267,7 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
                 other @ _ => panic!("expected either ; or EOF, found {:#?}",
                                     other)
             }
-        
+
         } else {
             panic!("super combinator name expected, {:#?} encountered",
                    cursor.consume());
@@ -1257,10 +1290,10 @@ fn test_skk3() {
 
 // main ---
 fn main() {
-    
-    let main = string_to_program("main = letrec x = 3; y = x; z = y in (negate x)".to_string()).unwrap().remove(0);
+
+    let main = string_to_program("main = letrec x = 3; y = x; z = y in (negate (negate (I x)))".to_string()).unwrap().remove(0);
     let mut m = Machine::new(vec![main]);
-    
+
     let mut i = 1;
     while i <= 100 {
         let env = m.step();
