@@ -7,6 +7,9 @@ use std::fmt::{Write};
 
 use std::cmp; //for max
 
+use std::io; //for IO
+
+
 type Addr = i32;
 type Name = String;
 
@@ -532,17 +535,16 @@ impl Machine {
                     HeapNode::Indirection(ind_addr) => {
                         panic!("not handling indirection")
                     }
-                    other @ _ => {
+                    _ => {
                         self.dump_stack(stack_copy);
                         self.stack.push(binop_arg_addr);
                     }
-
                 }
             }
-            HeapNode::Indirection(ind_addr) => {
+            HeapNode::Indirection(_) => {
                 panic!("not handling indirection")
             }
-            other @ _ => {
+            _ => {
                 self.dump_stack(stack_copy);
                 self.stack.push(left_arg_addr);
             }
@@ -809,7 +811,7 @@ enum ParseError {
 
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
 enum CoreToken {
     Let,
     LetRec,
@@ -1220,66 +1222,59 @@ fn parse_mul_div(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> 
     parse_application(&mut cursor)
 }
 
-//TODO: refactor this and add_relop to share code of branching and stuff
-fn parse_add_sub(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
-    let mul_div_lhs : CoreExpr = try!(parse_mul_div(&mut cursor));
+fn parse_binop_at_precedence(mut cursor: &mut ParserCursor,
+                             lhs_parse_fn: fn(&mut ParserCursor) -> Result<CoreExpr, ParseError>,
+                             rhs_parse_fn: fn(&mut ParserCursor) -> Result<CoreExpr, ParseError>,
+                             variable_bindings: HashMap<CoreToken, CoreExpr>) -> Result<CoreExpr, ParseError> {
+
+    let lhs_expr : CoreExpr = try!(lhs_parse_fn(&mut cursor));
 
     let c : CoreToken = cursor.peek();
 
-    let mul_div_rhs : CoreExpr = {
-        if c == CoreToken::Plus {
-            cursor.expect(CoreToken::Plus);
-            try!(parse_mul_div(&mut cursor))
-        }
-        else {
-            return Result::Ok(mul_div_lhs)
-        }
-    };
+    let (rhs_expr, operator_variable) = {
+        if let Some(&CoreExpr::Variable(ref op_str)) = variable_bindings.get(&c) {
+            let op_var = CoreExpr::Variable(op_str.clone());
+            try!(cursor.expect(c));
+            let rhs = try!(rhs_parse_fn(&mut cursor));
 
-    let operator : CoreExpr = {
-        if c == CoreToken::Plus {
-            CoreExpr::Variable("+".to_string())
+            (rhs, op_var)
         }
         else {
-            panic!("unknown token for add sub: {:#?}", c)
+            return Result::Ok(lhs_expr);
         }
+
+
     };
 
     let ap_inner =
-        CoreExpr::Application(Box::new(operator), Box::new(mul_div_lhs));
+        CoreExpr::Application(Box::new(operator_variable), Box::new(lhs_expr));
 
     Result::Ok(CoreExpr::Application(Box::new(ap_inner),
-                                     Box::new(mul_div_rhs)))
+                                     Box::new(rhs_expr)))
 
 
 }
+//TODO: refactor this and add_relop to share code of branching and stuff
+fn parse_add_sub(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
+    parse_binop_at_precedence(cursor,
+                              parse_mul_div,
+                              parse_add_sub,
+                              [(CoreToken::Plus, CoreExpr::Variable("+".to_string())),
+                               (CoreToken::Minus, CoreExpr::Variable("-".to_string()))
+                              ].iter().cloned().collect())
+}
 
 fn parse_relop(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
-    let add_sub_lhs : CoreExpr = try!(parse_add_sub(&mut cursor));
+    parse_binop_at_precedence(cursor,
+                              parse_add_sub,
+                              parse_relop,
+                              [(CoreToken::L, CoreExpr::Variable("<".to_string())),
+                               (CoreToken::LEQ, CoreExpr::Variable("<=".to_string())),
+                               (CoreToken::G, CoreExpr::Variable(">".to_string())),
+                               (CoreToken::GEQ, CoreExpr::Variable(">=".to_string())),
+                               (CoreToken::Equals, CoreExpr::Variable("==".to_string()))
+                              ].iter().cloned().collect())
 
-    let c : CoreToken = cursor.peek();
-
-    let add_sub_rhs : CoreExpr = {
-        if c == CoreToken::L {
-            try!(parse_add_sub(&mut cursor))
-        } else {
-            return Result::Ok(add_sub_lhs);
-        }
-    };
-
-    let operator : CoreExpr =
-        if c == CoreToken::L {
-            CoreExpr::Variable("<".to_string())
-        } else {
-            panic!("unknown token for relop: {:#?}", c)
-        };
-
-
-    let ap_inner =
-        CoreExpr::Application(Box::new(operator), Box::new(add_sub_lhs));
-
-    Result::Ok(CoreExpr::Application(Box::new(ap_inner),
-                                     Box::new(add_sub_rhs)))
 
 }
 
@@ -1287,27 +1282,21 @@ fn parse_relop(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
 //basically the same thing
 //expr2 -> expr3 "&" expr2 | expr3
 fn parse_and(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
-    (parse_relop(&mut cursor))
+    parse_binop_at_precedence(cursor,
+                              parse_relop,
+                              parse_and,
+                              [(CoreToken::And, CoreExpr::Variable("&".to_string()))
+                              ].iter().cloned().collect())
+
 }
 
 //expr1 -> expr2 "|" expr1 | expr1
 fn parse_or(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
-    let and_lhs = try!(parse_and(&mut cursor));
-
-    if let CoreToken::Or = cursor.peek() {
-        try!(cursor.consume());
-        let and_rhs = try!(parse_and(&mut cursor));
-
-        let or_val = CoreExpr::Variable("|".to_string());
-        let ap_inner =
-            CoreExpr::Application(Box::new(or_val),
-                                  Box::new(and_lhs));
-
-        Result::Ok(CoreExpr::Application(Box::new(ap_inner),
-                                         Box::new(and_rhs)))
-    } else {
-        Result::Ok(and_lhs)
-    }
+    parse_binop_at_precedence(cursor,
+                              parse_and,
+                              parse_or,
+                              [(CoreToken::And, CoreExpr::Variable("|".to_string()))
+                              ].iter().cloned().collect())
 }
 
 
@@ -1385,9 +1374,8 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
 
 fn run_machine(program:  &str) -> Machine {
     let main = string_to_program(program.to_string())
-               .unwrap()
-               .remove(0);
-    let mut m = Machine::new(vec![main]);
+               .unwrap();
+    let mut m = Machine::new(main);
     while !machine_is_final_state(&m) {
         m.step();
     }
@@ -1440,17 +1428,49 @@ fn test_add_lhs_rhs_ap() {
 
 // main ---
 fn main() {
+    use std::io::Write;
+    loop {
+        let mut input : String = String::new();
+        print!("\n>>>");
+        io::stdout().flush().unwrap();
 
-    let main = string_to_program("main = letrec x = 3; y = x; z = y in (negate (negate (I x)))".to_string()).unwrap().remove(0);
-    let mut m = Machine::new(vec![main]);
+        match io::stdin().read_line(&mut input) {
+            Ok(n) => {
+                if input == "exit" {
+                    break;
+                }
+                else {
+                    let mut m : Machine = {
+                        let main = match string_to_program("main = ".to_string() + &input) {
+                            Result::Ok(mut p) => p.remove(0),
+                            Result::Err(e) => {
+                                print!("error: {:#?}", e);
+                                continue;
+                            }
+                        };
 
-    let mut i = 1;
-    while i <= 100 {
-        let env = m.step();
-        print!("\n\n>>> i: {} <<<\n", i);
-        print_machine(&m, &env);
-        i += 1;
 
-        if machine_is_final_state(&m)  { break; }
+                         Machine::new(vec![main])
+                    };
+
+                    let mut i = 0;
+
+                    loop {
+                        let env = m.step();
+                        print!("*** ITERATION: {} \n***", i);
+                        print_machine(&m, &env);
+
+                        i += 1;
+
+                        if machine_is_final_state(&m) { break; }
+                    }
+                }
+
+                print!("*** MACHINE ENDED ***");
+
+            }
+
+            Err(error) => panic!("error: {}", error)
+        }
     }
 }
