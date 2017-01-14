@@ -253,6 +253,8 @@ struct Machine {
     options: MachineOptions,
 }
 
+type MachineError = String;
+
 
 
 fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
@@ -488,7 +490,10 @@ impl Machine {
 
 
 
-    fn run_primitive_arith_binop(&mut self, handler: fn (a: i32, b: i32) -> HeapNode) {
+    fn run_primitive_binop<PrimType>(&mut self,
+                                     extractor: fn(HeapNode) -> Result<MachineError, Option<PrimType>>,
+                                     handler: fn (a: PrimType, b: PrimType) -> HeapNode) -> Result<MachineError, ()>{
+
         let stack_copy = self.stack.clone();
 
         //stack will be like
@@ -514,43 +519,60 @@ impl Machine {
             panic!("expected function application of the form (+ a)");
         };
 
-        match self.heap.get(&left_arg_addr) {
-            HeapNode::Num(n_left) => {
-                //do the same process for right argument
-                //peek (+ a) b
-                //we peek, since in the case where (+ a) b can be reduced,
-                //we simply rewrite the node (+ a b) with the final value (instead of creating a fresh node)
-                let binop_ap_addr = self.stack.peek();
-                let binop_arg_addr = if let HeapNode::Application{arg_addr: right_arg_addr, ..} = self.heap.get(&binop_ap_addr) {
-                    right_arg_addr
-                }
-                else {
-                    panic!("expected function application of the form ((+ a) b)");
-                };
 
-                match self.heap.get(&binop_arg_addr) {
-                    HeapNode::Num(n_right) => {
-                        self.heap.rewrite(&binop_ap_addr, handler(n_left, n_right));
+        let left_arg_node = self.heap.get(&left_arg_addr);
+        //extractor will error out if it finds something weird. If it can
+        //evaluate value right now, it will do so. If not, it will return a None
+        let left_value = match try!(extractor(&left_arg_node)) {
+            Some(value) => value,
+            None => {
+                match left_arg_node {
+                    HeapNode::Indirection(_) => {
+                        panic!("not handling indirection")
                     }
+                    other @ _ => {
+                        self.dump_stack(stack_copy);
+                        sef.stack.push(left_arg_addr);
+                        return Result::Ok(());
+                    }
+                }
+            }
+        };
+
+        //do the same process for right argument
+        //peek (+ a) b
+        //we peek, since in the case where (+ a) b can be reduced,
+        //we simply rewrite the node (+ a b) with the final value (instead of creating a fresh node)
+        let binop_ap_addr = self.stack.peek();
+        let binop_arg_addr = if let HeapNode::Application{arg_addr: right_arg_addr, ..} = self.heap.get(&binop_ap_addr) {
+            right_arg_addr
+        }
+        else {
+            return Result::Err("expected function application of the form ((+ a) b)");
+        };
+
+        let right_arg_node = heap.get(binop_arg_addr);
+
+        let right_value = match try!(extractor(&right_arg_node)) {
+            Some(val) => val,
+            None => {
+                match rught_arg_node {
+
                     HeapNode::Indirection(ind_addr) => {
                         panic!("not handling indirection")
                     }
                     _ => {
                         self.dump_stack(stack_copy);
                         self.stack.push(binop_arg_addr);
+                        return Result::Ok(());
                     }
                 }
-            }
-            HeapNode::Indirection(_) => {
-                panic!("not handling indirection")
-            }
-            _ => {
-                self.dump_stack(stack_copy);
-                self.stack.push(left_arg_addr);
-            }
 
-        } //close left_arg_addr pattern match
+            }
+        };
+        self.heap.rewrite(&binop_ap_addr, handler(left_value, right_value));
 
+        Result::Ok(())
     } //close fn
 
     fn dump_stack(&mut self, stack: Stack) {
@@ -559,7 +581,7 @@ impl Machine {
     }
 
     //actually run_step the computation
-    fn run_step(&mut self, heap_val: &HeapNode) -> Bindings {
+    fn run_step(&mut self, heap_val: &HeapNode) -> Result<MachineError, Bindings> {
         match heap_val {
             &HeapNode::Num(n) =>
                 panic!("number applied as a function: {}", n),
@@ -567,24 +589,33 @@ impl Machine {
             &HeapNode::Application{fn_addr, ..} => {
                 //push function address over the function
                 self.stack.push(fn_addr);
-                self.globals.clone()
+                Result::Ok(self.globals.clone())
             }
             &HeapNode::Indirection(ref addr) => {
                 //simply ignore an indirection during execution, and
                 //push the indirected value on the stack
                 self.stack.pop();
                 self.stack.push(*addr);
-                self.globals.clone()
+                Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(ref name, ref prim) => {
                 fn plus_handler(a: i32, b: i32) -> HeapNode {
                      HeapNode::Num(a + b)
                 };
 
+                fn num_extractor(n: HeapNode) -> Result<MachineError, Option<i32>> {
+                    match n {
+                        HeapNode::Num(n) => Result::Ok(Option::Some(n)),
+                        HeapNode::Primitive | HeapNode::Supercombinator =>
+                            Result::Err(format!("unable to handle node type of: {#:?} for operation", node))
+                        HeapNode::Indirection => Result::Ok(Option::None)
+                    }
+                }
+
                 match prim {
-                    &MachinePrimOp::Negate => self.run_primitive_negate(),
+                    &MachinePrimOp::Negate => Result::Ok(self.run_primitive_negate()),
                     &MachinePrimOp::Add => {
-                        self.run_primitive_arith_binop(plus_handler);
+                        try!(self.run_primitive_binop(num_extractor, plus_handler));
                         self.globals.clone()
                     }
                     _ => panic!("unimplemented")
@@ -1029,7 +1060,6 @@ fn tokenize(program: String) -> Vec<CoreToken> {
 
 
 
-
             }
 
         }
@@ -1040,33 +1070,6 @@ fn tokenize(program: String) -> Vec<CoreToken> {
 
 }
 
-
-//TODO: write an infix parser for equals
-//this is now totally possible since (=) is used to parse only
-//<var> = <defn> for let expressions.
-
-
-/*
-fn parse_defn(mut c: &mut ParserCursor, p: &Parser) ->
-    Result<(CoreVariable, Box<CoreExpr>), ParseError> {
-
-    if let CoreToken::Ident(name) =  try!(c.consume()) {
-        try!(c.expect(CoreToken::Equals));
-
-        print!("found = ");
-        if let CoreAST::Expr(rhs) = try!(p.parse(&mut c, 0)) {
-            return Result::Ok((name, Box::new(rhs)))
-        }
-        else {
-            panic!("expected expr at let binding rhs");
-        }
-
-    }
-    else {
-        panic!("variable name expected at defn");
-    }
-}
-*/
 
 //does this token allow us to start to parse an
 //atomic expression?
@@ -1278,8 +1281,7 @@ fn parse_relop(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
 
 }
 
-//TODO: make a higher order function to unify AND, OR, PLUS, etc. they're
-//basically the same thing
+
 //expr2 -> expr3 "&" expr2 | expr3
 fn parse_and(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
     parse_binop_at_precedence(cursor,
