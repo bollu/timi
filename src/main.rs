@@ -1364,8 +1364,9 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
     }
     Result::Ok(program)
 }
-#[cfg(test)]
 
+
+#[cfg(test)]
 fn run_machine(program:  &str) -> Machine {
     let main = string_to_program(program.to_string())
     .unwrap();
