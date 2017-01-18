@@ -2,29 +2,22 @@
 name = "graphreduction"
 version = "0.1.0"
 dependencies = [
- "combine 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "nom 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "termion 1.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
-name = "ascii"
-version = "0.7.1"
+name = "libc"
+version = "0.2.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "combine"
-version = "2.1.0"
+name = "termion"
+version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "ascii 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libc 0.2.20 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
-[[package]]
-name = "nom"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
 [metadata]
-"checksum ascii 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)" = "3ae7d751998c189c1d4468cf0a39bb2eae052a9c58d50ebb3b9591ee3813ad50"
-"checksum combine 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "dc38f9cc00251b54e3d82612cd267f9f7dcfd86e93754b427c79e27651fe152e"
-"checksum nom 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "ffc564b2727f758993db55d4ffed0d84bbd7f387a66509516768c8f786bb0b10"
+"checksum libc 0.2.20 (registry+https://github.com/rust-lang/crates.io-index)" = "684f330624d8c3784fb9558ca46c4ce488073a8d22450415c5eb4f4cfb0d11b5"
+"checksum termion 1.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "9a90df1ede85b25f0bbb50b6313f8fab00e30b3b251f1cc2165faa40924e1417"

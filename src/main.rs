@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate nom;
-
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Write};
@@ -480,7 +477,7 @@ impl Machine {
                       arg_addr: ind_addr});
 
                 }
-                other @ _ => {
+                _ => {
                     self.dump_stack(stack_copy);
                     self.stack.push(*arg_addr);
                 }
@@ -537,7 +534,9 @@ impl Machine {
                 panic!("not handling indirection")
             }
             
-            other @ _ => {
+            _ => {
+                print!("PUSHING FOR LEFT_ARG_NODE: {:#?}", left_arg_node);
+       
                 self.dump_stack(stack_copy);
                 self.stack.push(left_arg_addr);
                 return Result::Ok(());
@@ -549,15 +548,16 @@ impl Machine {
         //we peek, since in the case where (+ a) b can be reduced,
         //we simply rewrite the node (+ a b) with the final value (instead of creating a fresh node)
         let binop_ap_addr = self.stack.peek();
-        let binop_arg_addr = if let HeapNode::Application{arg_addr: right_arg_addr, ..} = self.heap.get(&binop_ap_addr) {
+        let right_arg_addr = if let HeapNode::Application{arg_addr: right_arg_addr, ..} = self.heap.get(&binop_ap_addr) {
             right_arg_addr
         }
         else {
             return Result::Err(format!("expected function application of the form ((+ a) b), found {:#?}", self.heap.get(&binop_ap_addr)));
         };
 
-        let right_arg_node = self.heap.get(&binop_arg_addr);
+        let right_arg_node = self.heap.get(&right_arg_addr);
 
+        //FIXME: remove code duplication for left and right branches
         let right_value = match right_arg_node {
             HeapNode::Num(n) => n,
             
@@ -566,8 +566,10 @@ impl Machine {
             }
             
             other @ _ => {
+                print!("PUSHING FOR RIGHT ARG NODE: {:#?}", other);
+
                 self.dump_stack(stack_copy);
-                self.stack.push(left_arg_addr);
+                self.stack.push(right_arg_addr);
                 return Result::Ok(());
             }
         };
@@ -599,7 +601,7 @@ impl Machine {
                 self.stack.push(*addr);
                 Result::Ok(self.globals.clone())
             }
-            &HeapNode::Primitive(ref name, ref prim) => {
+            &HeapNode::Primitive(_, ref prim) => {
 
                 match prim {
                     &MachinePrimOp::Negate => Result::Ok(self.run_primitive_negate()),
@@ -1362,14 +1364,14 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
     }
     Result::Ok(program)
 }
-
+#[cfg(test)]
 
 fn run_machine(program:  &str) -> Machine {
     let main = string_to_program(program.to_string())
     .unwrap();
     let mut m = Machine::new(main);
     while !machine_is_final_state(&m) {
-        m.step();
+        let _ = m.step();
     }
     return m
 }
@@ -1475,9 +1477,9 @@ fn main() {
                 
                 if machine_is_final_state(&m) { break; }
 
-                if (pause_per_step) {
+                if pause_per_step {
                     let mut discard = String::new();
-                    io::stdin().read_line(&mut discard);
+                    let _ = io::stdin().read_line(&mut discard);
                 }
             }
 

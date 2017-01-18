@@ -4,7 +4,4 @@ version = "0.1.0"
 authors = ["bollu <siddu.druid@gmail.com>"]
 
 [dependencies]
-combine = "2.1.0"
-nom = "^2.0"
-
-
+termion = "1.0"
