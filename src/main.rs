@@ -106,7 +106,8 @@ enum HeapNode {
     Supercombinator(SupercombDefn),
     Num(i32),
     Indirection(Addr),
-    Primitive(Name, MachinePrimOp)
+    Primitive(Name, MachinePrimOp),
+    Data{tag: DataTag, component_addrs: Vec<Addr>}
 }
 
 impl fmt::Debug for HeapNode {
@@ -126,6 +127,9 @@ impl fmt::Debug for HeapNode {
             }
             &HeapNode::Primitive(ref name, ref primop)  => {
                 write!(fmt, "H-prim-{} {:#?}", name, primop)
+            },
+            &HeapNode::Data{ref tag, ref component_addrs} => {
+                write!(fmt, "H-data-{} addrs: {:#?}", tag, component_addrs)
             }
         }
     }
@@ -270,8 +274,17 @@ fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
             let mut sc_str = String::new();
             write!(&mut sc_str, "{}", sc_defn.name).unwrap();
             sc_str
-
         }
+        &HeapNode::Data{ref tag, ref component_addrs} => {
+            let mut data_str = String::new();
+            data_str  += &format!("data-{}", tag);
+            for c in component_addrs.iter() {
+                data_str += 
+                       &format!("{}", format_heap_node(m, env, &m.heap.get(c)))
+            }
+            data_str
+        }
+
     }
 }
 
@@ -588,7 +601,7 @@ impl Machine {
         match heap_val {
             &HeapNode::Num(n) =>
             panic!("number applied as a function: {}", n),
-
+            &HeapNode::Data{..} => panic!("cannot run data node, unimplemented"),
             &HeapNode::Application{fn_addr, ..} => {
                 //push function address over the function
                 self.stack.push(fn_addr);
@@ -672,6 +685,7 @@ impl Machine {
                           mut heap: &mut Heap) {
 
         match heap.get(&edit_addr) {
+            HeapNode::Data{..} => panic!("unimplemented rebinding of Data node"),
             HeapNode::Application{fn_addr, arg_addr} => {
                 let new_fn_addr = if fn_addr == old_addr {
                     new_addr
