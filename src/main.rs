@@ -293,32 +293,36 @@ fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
 }
 
 fn print_machine(m: &Machine, env: &Bindings) {
-    print!("\n\n===\n\n");
+    fn print_stack(m: &Machine, env: &Bindings, s: &Stack) {
+        print!( "stack:\n");
+        print!( "## top ##\n");
+        for addr in s.iter().rev() {
+            print!("heap[{}] :  {}\n",
+                   *addr,
+                   format_heap_node(m,
+                                    env,
+                                    &m.heap.get(addr)));
+        }
+        print!( "## bottom ##\n");
+    };
 
-    print!( "*** stack: ***\n");
-    print!( "## top ##\n");
-    for addr in m.stack.iter().rev() {
-        print!("heap[{}] :  {}\n",
-               *addr,
-               format_heap_node(m,
-                                env,
-                                &m.heap.get(addr)));
-    }
-    print!( "## bottom ##\n");
-
+    print_stack(m, env, &m.stack);
 
     print!("*** heap: ***\n");
     print!("{:#?}", m.heap);
 
     print!("*** dump: ***\n");
-    print!("{:#?}", m.dump);
+    for stack in  m.dump.iter().rev() {
+        print_stack(m, env, stack);
+    }
 
+    /*
     print!( "\n*** env: ***\n");
     let mut env_ordered : Vec<(&Name, &Addr)> = env.iter().collect();
     env_ordered.sort_by(|e1, e2| e1.0.cmp(e2.0));
     for &(name, addr) in env_ordered.iter() {
         print!("{} => {}\n", name, format_heap_node(m, env, &m.heap.get(addr)));
-    }
+    }*/
 }
 
 
