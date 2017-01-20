@@ -91,6 +91,10 @@ enum MachinePrimOp {
     Mul,
     Div,
     Negate,
+    Construct {
+        tag: DataTag,
+        num_args: i32
+    }
 }
 
 
@@ -460,12 +464,46 @@ impl Machine {
         env
     }
 
-    fn run_primitive_negate(&mut self) -> Bindings {
+    //get a num parameter, or sets up the state of the machine
+    //to be able to do so
+    fn setup_get_number_argument(&mut self,
+                                 stack_to_dump: Stack,
+                                 ap_addr: Addr) -> Option<i32> {
+
+        let (arg_addr, fn_addr) = match self.heap.get(&ap_addr) {
+            HeapNode::Application{arg_addr, fn_addr} => (arg_addr, fn_addr),
+            other @ _ => 
+                panic!("expected application at {}, found {:#?}", ap_addr, other)
+        };
+
+        let arg = self.heap.get(&arg_addr);
+
+        match arg {
+            HeapNode::Num(i) => return Some(i),
+            HeapNode::Indirection(ind_addr) => {
+                //pop off the application and then create a new
+                //application that does into the indirection address
+                self.heap.rewrite(&ap_addr, HeapNode::Application{fn_addr: fn_addr,
+                  arg_addr: ind_addr});
+                None
+
+            }
+            _ => {
+                self.dump_stack(stack_to_dump);
+                self.stack.push(arg_addr);
+                None
+            }
+        }
+        
+
+    }
+
+    fn run_primitive_negate(&mut self) -> Result<(), MachineError> {
         //we need a copy of the stack to push into the dump
         let stack_copy = self.stack.clone();
 
         //pop the primitive off
-        let negate_prim_addr = self.stack.pop();
+        self.stack.pop();
 
         //we rewrite this addres in case of
         //a raw number
@@ -473,6 +511,16 @@ impl Machine {
 
         //Apply <negprim> <argument>
         //look at what argument is and dispatch work
+        let to_negate_val = match self.setup_get_number_argument(stack_copy,
+                                                                 neg_ap_addr) {
+            Some(val) => val,
+            None => return Result::Ok(())
+        };
+
+        self.heap.rewrite(&neg_ap_addr, HeapNode::Num(-to_negate_val));
+        Result::Ok(())
+        
+        /*
         if let HeapNode::Application{ref arg_addr, ref fn_addr} = self.heap.get(&neg_ap_addr) {
             let arg = self.heap.get(arg_addr);
             assert!(*fn_addr == negate_prim_addr, concat!("expected the function being called to be",
@@ -502,7 +550,7 @@ impl Machine {
         }
         else {
             panic!("expected application node")
-        }
+        }*/
     }
 
 
@@ -528,31 +576,13 @@ impl Machine {
         self.stack.pop();
 
 
-        //pop out (Ap (Prim +) a)
-        let left_arg_addr = if let HeapNode::Application{arg_addr: left_arg_addr, ..} = self.heap.get(&self.stack.pop()) {
-            left_arg_addr
-        }
-        else {
-            panic!("expected function application of the form (+ a)");
-        };
-
-
-        let left_arg_node = self.heap.get(&left_arg_addr);
-        //extractor will error out if it finds something weird. If it can
-        //evaluate value right now, it will do so. If not, it will return a None
-        let left_value = match left_arg_node {
-            HeapNode::Num(n) => n,
-            
-            HeapNode::Indirection(_) => {
-                panic!("not handling indirection")
-            }
-            
-            _ => {
-                print!("PUSHING FOR LEFT_ARG_NODE: {:#?}", left_arg_node);
-       
-                self.dump_stack(stack_copy);
-                self.stack.push(left_arg_addr);
-                return Result::Ok(());
+        let left_value = {
+            //pop off left value
+            let left_ap_addr = self.stack.pop();
+            match self.setup_get_number_argument(stack_copy.clone(),
+                                                 left_ap_addr) {
+                Some(val) => val,
+                None => return Result::Ok(())
             }
         };
 
@@ -561,31 +591,12 @@ impl Machine {
         //we peek, since in the case where (+ a) b can be reduced,
         //we simply rewrite the node (+ a b) with the final value (instead of creating a fresh node)
         let binop_ap_addr = self.stack.peek();
-        let right_arg_addr = if let HeapNode::Application{arg_addr: right_arg_addr, ..} = self.heap.get(&binop_ap_addr) {
-            right_arg_addr
-        }
-        else {
-            return Result::Err(format!("expected function application of the form ((+ a) b), found {:#?}", self.heap.get(&binop_ap_addr)));
+        let right_value = match self.setup_get_number_argument(stack_copy,
+                                                               binop_ap_addr) {
+            Some(val) => val,
+            None => return Result::Ok(())
         };
 
-        let right_arg_node = self.heap.get(&right_arg_addr);
-
-        //FIXME: remove code duplication for left and right branches
-        let right_value = match right_arg_node {
-            HeapNode::Num(n) => n,
-            
-            HeapNode::Indirection(_) => {
-                panic!("not handling indirection")
-            }
-            
-            other @ _ => {
-                print!("PUSHING FOR RIGHT ARG NODE: {:#?}", other);
-
-                self.dump_stack(stack_copy);
-                self.stack.push(right_arg_addr);
-                return Result::Ok(());
-            }
-        };
         self.heap.rewrite(&binop_ap_addr, HeapNode::Num(handler(left_value, right_value)));
 
         Result::Ok(())
@@ -617,9 +628,24 @@ impl Machine {
             &HeapNode::Primitive(_, ref prim) => {
 
                 match prim {
-                    &MachinePrimOp::Negate => Result::Ok(self.run_primitive_negate()),
+                    &MachinePrimOp::Negate => {
+                        try!(self.run_primitive_negate());
+                        Result::Ok(self.globals.clone())
+                    }
                     &MachinePrimOp::Add => {
                         try!(self.run_num_binop(|x, y| x + y));
+                        Result::Ok(self.globals.clone())
+                    }
+                    &MachinePrimOp::Sub => {
+                        try!(self.run_num_binop(|x, y| x - y));
+                        Result::Ok(self.globals.clone())
+                    }
+                    &MachinePrimOp::Mul => {
+                        try!(self.run_num_binop(|x, y| x * y));
+                        Result::Ok(self.globals.clone())
+                    }
+                    &MachinePrimOp::Div => {
+                        try!(self.run_num_binop(|x, y| x / y));
                         Result::Ok(self.globals.clone())
                     }
                     _ => panic!("unimplemented")
@@ -1227,10 +1253,6 @@ fn parse_application(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseErr
     }
 }
 
-fn parse_mul_div(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
-    parse_application(&mut cursor)
-}
-
 fn parse_binop_at_precedence(mut cursor: &mut ParserCursor,
                              lhs_parse_fn: fn(&mut ParserCursor) -> Result<CoreExpr, ParseError>,
                              rhs_parse_fn: fn(&mut ParserCursor) -> Result<CoreExpr, ParseError>,
@@ -1263,7 +1285,18 @@ fn parse_binop_at_precedence(mut cursor: &mut ParserCursor,
 
 
 }
-//TODO: refactor this and add_relop to share code of branching and stuff
+
+fn parse_mul_div(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
+    parse_binop_at_precedence(cursor,
+                              parse_application,
+                              parse_mul_div,
+                              [(CoreToken::Mul, CoreExpr::Variable("*".to_string())),
+                              (CoreToken::Div, CoreExpr::Variable("/".to_string()))
+                              ].iter().cloned().collect())
+    //parse_application(&mut cursor)
+}
+
+
 fn parse_add_sub(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
     parse_binop_at_precedence(cursor,
                               parse_mul_div,
