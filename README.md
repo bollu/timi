@@ -1,7 +1,7 @@
-Graph Reduction
+TIMmy (Template Instantiation Machine)
 ===============
 
-An implementation of a graph reducer from the excellent book
+An implementation of a template instantiation machine  from the excellent book
 [Implementing Functional languages, a tutorial](http://research.microsoft.com/en-us/um/people/simonpj/Papers/pj-lester-book/)
 
 It is written in Rust because I like the fact that
@@ -11,10 +11,10 @@ It is written in Rust because I like the fact that
 
 ## Roadmap
 - [x] Mark 1 (template instantiation)
-- [ ] let, letrec
-- [ ] template updates (do not stupidly instatiate each time)
-- [ ] numeric functions
-- [ ] Pratt Parser for core
+- [x] let, letrec
+- [x] template updates (do not stupidly instatiate each time)
+- [x] numeric functions
+- [ ] Booleans (WIP)
 - [ ] nicer interface for stepping through execution
 
 
