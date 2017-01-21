@@ -339,7 +339,8 @@ fn get_prelude() -> CoreProgram {
                       K1 x y = y;\
                       S f g x = f x (g x);\
                       compose f g x = f (g x);\
-                      twice f = compose f f\
+                      twice f = compose f f;\
+                      False = Pack{1, 0}\
                       ".to_string()).unwrap()
 }
 
@@ -943,12 +944,11 @@ fn machine_is_final_state(m: &Machine) -> bool {
 
 }
 
-//parsing ---
+//*** parsing & tokenisation ***
 
 #[derive(Clone, Debug)]
 enum ParseError {
     NoTokens,
-    UnknownSymbol,
     UnexpectedToken {
         expected: Vec<CoreToken>,
         found: CoreToken
@@ -956,6 +956,8 @@ enum ParseError {
     ParseErrorStr(String),
 
 }
+
+//*** tokenisation ***
 
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 enum CoreToken {
@@ -1044,24 +1046,115 @@ fn identifier_str_to_token(token_str: &str) -> CoreToken {
         "letrec" => CoreToken::LetRec,
         "in" => CoreToken::In,
         "case" => CoreToken::Case,
+        "Pack" => CoreToken::Pack,
+        //TODO: do I want to allow lower case things here?
         "pack" => CoreToken::Pack,
         other @ _ => CoreToken::Ident(other.to_string())
     }
-
 }
 
 
-fn tokenize(program: String) -> Vec<CoreToken> {
+fn is_char_space(c: char) -> bool {
+    c == ' ' || c == '\n' || c == '\t'
+}
 
-    fn is_char_space(c: char) -> bool {
-        c == ' ' || c == '\n' || c == '\t'
+fn is_char_symbol(c: char) -> bool {
+    !c.is_alphabetic() && !c.is_numeric()
+}
+
+/*
+fn tokenize_symbol(char_arr: Vec<char>, i: usize) -> 
+Result<(CoreToken, usize), ParseError> {
+    panic!("unimplemented")
+}
+*/
+
+fn tokenize_symbol(char_arr: Vec<char>, i: usize) -> 
+    Result<(CoreToken, usize), ParseError> {
+    
+
+    let c = match char_arr.get(i) {
+        Some(c) => c.clone(),
+        None => return 
+            Result::Err(ParseError::ParseErrorStr(format!(
+                    "unable to get value out of: {} from: {:?}", i, char_arr)))
+    };
+    assert!(is_char_symbol(c),
+    format!("{} is not charcter, digit or symbol", c));
+
+    let symbol_token_map: HashMap<&str, CoreToken> =
+        [("=", CoreToken::Equals),
+        (";", CoreToken::Semicolon),
+        ("(", CoreToken::OpenRoundBracket),
+        (")", CoreToken::CloseRoundBracket),
+        ("(", CoreToken::OpenRoundBracket),
+        ("{", CoreToken::CloseCurlyBracket),
+        ("}", CoreToken::OpenCurlyBracket),
+        (",", CoreToken::Comma),
+        ("|", CoreToken::Or),
+        ("&", CoreToken::And),
+        ("<", CoreToken::L),
+        ("<=", CoreToken::LEQ),
+        (">", CoreToken::G),
+        (">=", CoreToken::GEQ),
+        ("+", CoreToken::Plus),
+        ("-", CoreToken::Minus),
+        ("*", CoreToken::Mul),
+        ("/", CoreToken::Div),
+        ("\\", CoreToken::Lambda)]
+            .iter().cloned().collect();
+
+
+    let longest_op_len = symbol_token_map
+        .keys()
+        .map(|s| s.len())
+        .fold(0, cmp::max);
+
+
+    //take only enough to not cause an out of bounds error
+    let length_to_take = cmp::min(longest_op_len,
+                                  char_arr.len() - i);
+
+    //take all lengths, starting from longest,
+    //ending at shortest
+    let mut longest_op_opt : Option<CoreToken> = None;
+    let mut longest_taken_length = 0;
+
+    for l in (1..length_to_take+1).rev() {
+        let op_str : String = char_arr[i..i + l]
+            .iter()
+            .cloned()
+            .collect();
+
+        if let Some(tok) = symbol_token_map.get(&op_str.as_str()) {
+            //we found a token, break
+            longest_taken_length = l;
+            longest_op_opt = Some(tok.clone());
+            break;
+        }
     }
 
-    fn is_char_symbol(c: char) -> bool {
-        !c.is_alphabetic() && !c.is_numeric()
-    }
+    //longest operator is tokenised
+    let longest_op : CoreToken = match longest_op_opt {
+        Some(op) => op,
+        None => {
+            let symbol = char_arr[i..i + length_to_take];
+            return Result::Err(ParseError::ParseErrorStr(format!(
+                        "unknown symbol {:?}", symbol)))
+        }
+    };
+
+    Result::Ok((longest_op, longest_taken_length))
+    //tokens.push(longest_op);
+    //i += longest_taken_length;
+}
+
+
+
+fn tokenize(program: String) -> Result<Vec<CoreToken>, ParseError> {
+
     //let char_arr : &[u8] = program.as_bytes();
-    let char_arr : Vec<_> = program.clone().chars().collect();
+    let char_arr : Vec<char> = program.clone().chars().collect();
     let mut i = 0;
 
     let mut tokens = Vec::new();
@@ -1073,7 +1166,7 @@ fn tokenize(program: String) -> Vec<CoreToken> {
         }
 
         //consume spaces
-        while let Some(& c) = char_arr.get(i) {
+        while let Some(&c) = char_arr.get(i) {
             if !is_char_space(c) {
                 break;
             }
@@ -1118,78 +1211,15 @@ fn tokenize(program: String) -> Vec<CoreToken> {
 
             }
             else {
-                assert!(is_char_symbol(c),
-                        format!("{} is not charcter, digit or symbol", c));
-
-                let symbol_token_map: HashMap<&str, CoreToken> =
-                [("=", CoreToken::Equals),
-                (";", CoreToken::Semicolon),
-                ("(", CoreToken::OpenRoundBracket),
-                (")", CoreToken::CloseRoundBracket),
-                ("(", CoreToken::OpenRoundBracket),
-                (")", CoreToken::CloseCurlyBracket),
-                ("(", CoreToken::OpenCurlyBracket),
-                (",", CoreToken::Comma),
-                ("|", CoreToken::Or),
-                ("&", CoreToken::And),
-                ("<", CoreToken::L),
-                ("<=", CoreToken::LEQ),
-                (">", CoreToken::G),
-                (">=", CoreToken::GEQ),
-                ("+", CoreToken::Plus),
-                ("-", CoreToken::Minus),
-                ("*", CoreToken::Mul),
-                ("/", CoreToken::Div),
-                ("\\", CoreToken::Lambda)]
-                .iter().cloned().collect();
-
-
-                let longest_op_len = symbol_token_map
-                .keys()
-                .map(|s| s.len())
-                .fold(0, cmp::max);
-
-
-                //take only enough to not cause an out of bounds error
-                let length_to_take = cmp::min(longest_op_len,
-                                              char_arr.len() - i);
-
-                //take all lengths, starting from longest,
-                //ending at shortest
-                let mut longest_op_opt : Option<CoreToken> = None;
-                let mut longest_taken_length = 0;
-
-                for l in (1..length_to_take+1).rev() {
-                    let op_str : String = char_arr[i..i + l]
-                    .iter()
-                    .cloned()
-                    .collect();
-
-                    if let Some(tok) = symbol_token_map.get(&op_str.as_str()) {
-                        //we found a token, break
-                        longest_taken_length = l;
-                        longest_op_opt = Some(tok.clone());
-                        break;
-                    }
-                }
-
-                //longest operator is tokenised
-                //TODO: figure out why this fucks up
-                let longest_op : CoreToken = (longest_op_opt
-                                              .ok_or(ParseError::UnknownSymbol)).unwrap();
-
-                tokens.push(longest_op);
-                i += longest_taken_length;
-
-
-
+                let (symbol, stride) = try!(tokenize_symbol(char_arr.clone(), i));
+                i += stride;
+                tokens.push(symbol);
             }
-
         }
 
     }
 
-    tokens
+    Result::Ok(tokens)
 
 }
 
@@ -1308,6 +1338,8 @@ fn parse_let(mut c: &mut ParserCursor) -> Result<CoreLet, ParseError> {
 
 //pack := Pack "{" tag "," arity "}"
 fn parse_pack(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
+    println!("parsing pack..");
+
     try!(c.expect(CoreToken::Pack));
     try!(c.expect(CoreToken::OpenCurlyBracket));
 
@@ -1334,6 +1366,7 @@ fn parse_pack(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
     };
 
     try!(c.expect(CoreToken::CloseCurlyBracket));
+    println!("parsed pack: tag: {}, arity: {}", tag, arity);
     Result::Ok(CoreExpr::Pack{tag: tag, arity: arity })
 
 
@@ -1494,7 +1527,7 @@ Result<CoreExpr, ParseError> {
 
 fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
 
-    let tokens : Vec<CoreToken> = tokenize(string);
+    let tokens : Vec<CoreToken> = try!(tokenize(string));
     let mut cursor: ParserCursor = ParserCursor::new(tokens);
 
     let mut program : CoreProgram = Vec::new();
@@ -1670,7 +1703,6 @@ fn main() {
             print!("*** MACHINE ENDED ***");
 
         }
-
 
 
     }
