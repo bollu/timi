@@ -93,7 +93,7 @@ enum MachinePrimOp {
     Negate,
     Construct {
         tag: DataTag,
-        num_args: i32
+        num_args: u32
     }
 }
 
@@ -593,23 +593,87 @@ impl Machine {
         //do the same process for right argument
         //peek (+ a) b
         //we peek, since in the case where (+ a) b can be reduced,
-        //we simply rewrite the node (+ a b) with the final value (instead of creating a fresh node)
+        //we simply rewrite the node (+ a b) with the final value
+        //(instead of creating a fresh node)
         let binop_ap_addr = self.stack.peek();
-        let right_value = match self.setup_get_number_argument(stack_copy,
-                                                               binop_ap_addr) {
-            Some(val) => val,
-            None => return Result::Ok(())
-        };
+        let right_value = 
+            match self.setup_get_number_argument(stack_copy,
+                                                 binop_ap_addr) {
+                Some(val) => val,
+                None => return Result::Ok(())
+            };
 
-        self.heap.rewrite(&binop_ap_addr, HeapNode::Num(handler(left_value, right_value)));
+        self.heap.rewrite(&binop_ap_addr,
+                          HeapNode::Num(handler(left_value,
+                                                right_value)));
 
         Result::Ok(())
     } //close fn
 
+    //TODO: find out what happens when constructor of arity 0 is
+    //called
+    fn run_constructor(&mut self,
+                       tag: DataTag,
+                       num_args: u32) -> Result<Addr, MachineError> {
+        //pop out constructor
+        let _ = self.stack.pop();
+
+        if self.stack.len() < num_args as usize {
+            return Result::Err(format!("expected to have \
+                                       {} arguments to {} \
+                                       constructor, found {}",
+                                       num_args, 
+                                       tag,
+                                       self.stack.len()));
+        }
+    
+        let mut arg_addrs : Vec<Addr> = Vec::new();
+        
+        //This will be rewritten with the data
+        //since the fn call would have been something like:
+        //##top##
+        //(Constructor)
+        //(Constructor a)
+        //(Constructor a $ b)
+        //(Constructor a b $ c) <- to rewrite
+        //##bottom##
+        let mut outermost_constructor_addr_opt = None;
+
+        for i in 0..num_args {
+            match self.heap.get(&self.stack.pop()) {
+                HeapNode::Application{arg_addr, ..} => {
+                    arg_addrs.push(arg_addr);
+                    outermost_constructor_addr_opt = Some(arg_addr);
+                },
+                other @ _ => {
+                    return 
+                        Result::Err(format!("expected function application to\
+                                            get {} argument, found {:#?}",
+                                            i,
+                                            other));
+                }
+            }
+        };
+
+        let outermost_constructor_addr = 
+            outermost_constructor_addr_opt.expect("expected constructor called\
+                                                    with arity at least 1");
+
+        self.heap.rewrite(&outermost_constructor_addr,
+                          HeapNode::Data{
+                              component_addrs: arg_addrs,
+                               tag: tag
+                          });
+
+        Result::Ok(outermost_constructor_addr)
+        
+
+    }
     fn dump_stack(&mut self, stack: Stack) {
         self.dump.push(stack);
         self.stack = Stack::new();
     }
+
 
     //actually run_step the computation
     fn run_step(&mut self, heap_val: &HeapNode) -> Result<Bindings, MachineError> {
@@ -652,7 +716,14 @@ impl Machine {
                         try!(self.run_num_binop(|x, y| x / y));
                         Result::Ok(self.globals.clone())
                     }
-                    _ => panic!("unimplemented")
+                    &MachinePrimOp::Construct {
+                        tag,
+                        num_args
+                    } => {
+                        try!(self.run_constructor(tag, num_args));
+                        Result::Ok(self.globals.clone())
+
+                    }
                 }
 
 
