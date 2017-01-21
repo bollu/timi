@@ -1121,7 +1121,7 @@ fn tokenize_symbol(char_arr: Vec<char>, i: usize) ->
     let mut longest_taken_length = 0;
 
     for l in (1..length_to_take+1).rev() {
-        let op_str : String = char_arr[i..i + l]
+        let op_str : &String = &char_arr[i..i + l]
             .iter()
             .cloned()
             .collect();
@@ -1138,7 +1138,7 @@ fn tokenize_symbol(char_arr: Vec<char>, i: usize) ->
     let longest_op : CoreToken = match longest_op_opt {
         Some(op) => op,
         None => {
-            let symbol = char_arr[i..i + length_to_take];
+            let symbol = &char_arr[i..i + length_to_take];
             return Result::Err(ParseError::ParseErrorStr(format!(
                         "unknown symbol {:?}", symbol)))
         }
