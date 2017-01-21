@@ -27,7 +27,7 @@ enum CoreExpr {
     Variable(Name),
     Num(i32),
     Application(Box<CoreExpr>, Box<CoreExpr>),
-    Pack{tag: int, arity: int}
+    Pack{tag: u32, arity: u32},
     Let(CoreLet),
 
 
@@ -54,6 +54,9 @@ impl fmt::Debug for CoreExpr {
                 try!(write!(fmt, "in\n"));
                 try!(write!(fmt, "{:#?}", expr));
                 write!(fmt, "}}")
+            }
+            &CoreExpr::Pack{ref tag, ref arity} => {
+                write!(fmt, "Pack(tag: {} arity: {})", tag, arity)
             }
         }
     }
@@ -918,7 +921,9 @@ impl Machine {
                 None => Result::Err(format!("unable to find variable in heap: |{}|", vname))
             }
 
-        }
+        },
+        CoreExpr::Pack{tag, arity} => panic!("instantiate unimplemented \
+                                              for CoreExpr::Pack")
     }
 }
 
@@ -1188,11 +1193,10 @@ fn tokenize(program: String) -> Vec<CoreToken> {
 
 }
 
-fn parse_string_as_int(s: String) -> Result<i32, ParseError> {
+fn parse_string_as_int(num_str: String) -> Result<i32, ParseError> {
         i32::from_str_radix(&num_str, 10)
-                           .map_err(|_| ParseError::ParseErrorStr(format!(
-                                       "unable to parse {} as int",
-                                        num_str)));
+            .map_err(|_| ParseError::ParseErrorStr(format!(
+                "unable to parse {} as int", num_str)))
 }
 
 
@@ -1210,7 +1214,8 @@ fn is_token_atomic_expr_start(t: CoreToken) -> bool {
 
 
 //atomic := <num> | <ident> | "(" <expr> ")"
-fn parse_atomic_expr(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
+fn parse_atomic_expr(mut c: &mut ParserCursor) ->
+    Result<CoreExpr, ParseError> {
     match c.peek() {
         CoreToken::Integer(num_str) => {
             try!(c.consume());
@@ -1229,7 +1234,8 @@ fn parse_atomic_expr(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
             Result::Ok(inner_expr)
         },
         other @ _ =>
-        panic!("expected integer, identifier or (<expr>), found {:#?}", other)
+        panic!("expected integer, \
+               identifier or (<expr>), found {:#?}", other)
     }
 
 }
@@ -1305,24 +1311,26 @@ fn parse_pack(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
     try!(c.expect(CoreToken::Pack));
     try!(c.expect(CoreToken::OpenCurlyBracket));
 
-    let tag = match c.peek() {
+    let tag : u32 = match c.peek() {
         CoreToken::Integer(s) => {
-            c.consume();
-            parse_string_as_int(s)
+            try!(c.consume());
+            try!(parse_string_as_int(s)) as u32
         }
         other @ _ => 
-            return Result::Err("expected integer tag, found {:#?}", other)
+            return Result::Err(ParseError::ParseErrorStr(format!(
+                    "expected integer tag, found {:#?}", other)))
     };
 
     try!(c.expect(CoreToken::Comma));
 
-    let arity = match c.peek() {
+    let arity : u32 = match c.peek() {
         CoreToken::Integer(s) => {
-            c.consume();
-            parse_string_as_int(s)
+            try!(c.consume());
+            try!(parse_string_as_int(s)) as u32
         }
         other @ _ => 
-            return Result::Err("expected integer arity, found {:#?}", other)
+            return Result::Err(ParseError::ParseErrorStr(format!(
+                    "expected integer arity, found {:#?}", other)))
     };
 
     try!(c.expect(CoreToken::CloseCurlyBracket));
@@ -1333,7 +1341,8 @@ fn parse_pack(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
 
 
 //aexpr := variable | number | Pack "{" num "," num "}" | "(" expr ")" 
-fn parse_application(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
+fn parse_application(mut cursor: &mut ParserCursor) -> 
+    Result<CoreExpr, ParseError> {
     let mut application_vec : Vec<CoreExpr> = Vec::new();
     loop {
         let c = cursor.peek();
