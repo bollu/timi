@@ -33,3 +33,16 @@ an __error__ if we peek at something that doesn't exist, which is the wrong
 semantics. We want the user to be able to peek and make decisions based on
 whether something is present ahead or not. `consume()` and `expect()` should
 return errors since you're asking the cursor to go one token ahead.
+
+### Stuff I learnt
+
+### Difference between `[..]` and `&[..]`
+
+[Slice without ref](https://github.com/bollu/TIM-template-instantiation/blob/master/src/main.rs#L1124)
+versus
+[Slice with ref](https://github.com/bollu/TIM-template-instantiation/blob/d8515212f899ad185bec4bd1812bd493322b8d5d/src/main.rs#L1163)
+
+the difference is that the second slice is being taken inside `tokenize`, which somehow maintains length info
+(which is needed for `[..]` (since `[..]` means that you know the number of elements in it).
+
+So, when it is outside, you need to take a slice `&[..]`, so that `Sized` information is not needed
