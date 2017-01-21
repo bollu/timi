@@ -27,7 +27,10 @@ enum CoreExpr {
     Variable(Name),
     Num(i32),
     Application(Box<CoreExpr>, Box<CoreExpr>),
-    Let(CoreLet)
+    Pack{tag: int, arity: int}
+    Let(CoreLet),
+
+
 }
 
 impl fmt::Debug for CoreExpr {
@@ -960,6 +963,9 @@ enum CoreToken {
     Semicolon,
     OpenRoundBracket,
     CloseRoundBracket,
+    OpenCurlyBracket,
+    CloseCurlyBracket,
+    Comma,
     Integer(String),
     Lambda,
     Or,
@@ -972,6 +978,7 @@ enum CoreToken {
     Minus,
     Mul,
     Div,
+    Pack,
     //when you call peek(), it returns this token
     //if the token stream is empty.
     PeekNoToken
@@ -1032,6 +1039,7 @@ fn identifier_str_to_token(token_str: &str) -> CoreToken {
         "letrec" => CoreToken::LetRec,
         "in" => CoreToken::In,
         "case" => CoreToken::Case,
+        "pack" => CoreToken::Pack,
         other @ _ => CoreToken::Ident(other.to_string())
     }
 
@@ -1114,6 +1122,9 @@ fn tokenize(program: String) -> Vec<CoreToken> {
                 ("(", CoreToken::OpenRoundBracket),
                 (")", CoreToken::CloseRoundBracket),
                 ("(", CoreToken::OpenRoundBracket),
+                (")", CoreToken::CloseCurlyBracket),
+                ("(", CoreToken::OpenCurlyBracket),
+                (",", CoreToken::Comma),
                 ("|", CoreToken::Or),
                 ("&", CoreToken::And),
                 ("<", CoreToken::L),
@@ -1177,6 +1188,13 @@ fn tokenize(program: String) -> Vec<CoreToken> {
 
 }
 
+fn parse_string_as_int(s: String) -> Result<i32, ParseError> {
+        i32::from_str_radix(&num_str, 10)
+                           .map_err(|_| ParseError::ParseErrorStr(format!(
+                                       "unable to parse {} as int",
+                                        num_str)));
+}
+
 
 //does this token allow us to start to parse an
 //atomic expression?
@@ -1196,11 +1214,8 @@ fn parse_atomic_expr(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
     match c.peek() {
         CoreToken::Integer(num_str) => {
             try!(c.consume());
-            let num = try!(i32::from_str_radix(&num_str, 10)
-                           .map_err(|_|
-                                    ParseError::ParseErrorStr(
-                                                              format!("unable to parse {} as int",
-                                                                      num_str).to_string())));
+            let num = try!(parse_string_as_int(num_str));
+
             Result::Ok(CoreExpr::Num(num))
         },
         CoreToken::Ident(ident) => {
@@ -1285,11 +1300,48 @@ fn parse_let(mut c: &mut ParserCursor) -> Result<CoreLet, ParseError> {
     })
 }
 
+//pack := Pack "{" tag "," arity "}"
+fn parse_pack(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
+    try!(c.expect(CoreToken::Pack));
+    try!(c.expect(CoreToken::OpenCurlyBracket));
+
+    let tag = match c.peek() {
+        CoreToken::Integer(s) => {
+            c.consume();
+            parse_string_as_int(s)
+        }
+        other @ _ => 
+            return Result::Err("expected integer tag, found {:#?}", other)
+    };
+
+    try!(c.expect(CoreToken::Comma));
+
+    let arity = match c.peek() {
+        CoreToken::Integer(s) => {
+            c.consume();
+            parse_string_as_int(s)
+        }
+        other @ _ => 
+            return Result::Err("expected integer arity, found {:#?}", other)
+    };
+
+    try!(c.expect(CoreToken::CloseCurlyBracket));
+    Result::Ok(CoreExpr::Pack{tag: tag, arity: arity })
+
+
+}
+
+
+//aexpr := variable | number | Pack "{" num "," num "}" | "(" expr ")" 
 fn parse_application(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
     let mut application_vec : Vec<CoreExpr> = Vec::new();
     loop {
         let c = cursor.peek();
-        if is_token_atomic_expr_start(c) {
+        //we have a "pack" expression
+        if let CoreToken::Pack = c {
+            let pack_expr = try!(parse_pack(&mut cursor));
+            application_vec.push(pack_expr);
+        }else if is_token_atomic_expr_start(c) {
             let atomic_expr = try!(parse_atomic_expr(&mut cursor));
             application_vec.push(atomic_expr);
         } else {
@@ -1298,10 +1350,9 @@ fn parse_application(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseErr
     }
 
     if application_vec.len() == 0 {
-        Result::Err(
-                    ParseError::ParseErrorStr(
-                                              concat!("wanted function application or atomic expr",
-                                                      "found neither").to_string()))
+        Result::Err(ParseError::ParseErrorStr(
+                concat!("wanted function application or atomic expr",
+                        "found neither").to_string()))
 
     }
     else if application_vec.len() == 1 {
@@ -1414,6 +1465,7 @@ fn parse_or(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
                               [(CoreToken::And, CoreExpr::Variable("|".to_string()))
                               ].iter().cloned().collect())
 }
+
 
 
 
