@@ -90,7 +90,7 @@ impl fmt::Debug for SupercombDefn {
 type CoreProgram = Vec<SupercombDefn>;
 
 //primitive operations on the machine
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq)]
 enum MachinePrimOp {
     Add,
     Sub,
@@ -103,6 +103,20 @@ enum MachinePrimOp {
     }
 }
 
+impl fmt::Debug for MachinePrimOp {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+           &MachinePrimOp::Add => write!(fmt, "Add"),
+           &MachinePrimOp::Sub => write!(fmt, "Sub"),
+           &MachinePrimOp::Mul => write!(fmt, "Mul"),
+           &MachinePrimOp::Div => write!(fmt, "Div"),
+           &MachinePrimOp::Negate => write!(fmt, "Negate"),
+           &MachinePrimOp::Construct{tag, arity} => {
+                write!(fmt, "Construct-tag:{} | arity: {}", tag, arity)
+            }
+        }
+    }
+}
 
 type DataTag = u32;
 
@@ -139,7 +153,7 @@ impl fmt::Debug for HeapNode {
                 write!(fmt, "H-prim-{} {:#?}", name, primop)
             },
             &HeapNode::Data{ref tag, ref component_addrs} => {
-                write!(fmt, "H-data-{} addrs: {:#?}", tag, component_addrs)
+                write!(fmt, "H-data: tag: {} addrs: {:#?}", tag, component_addrs)
             }
         }
     }
@@ -622,9 +636,13 @@ impl Machine {
     //called
     fn run_constructor(&mut self,
                        tag: DataTag,
-                       arity: u32) -> Result<Addr, MachineError> {
+                       arity: u32) -> Result<(), MachineError> {
+
         //pop out constructor
-        let _ = self.stack.pop();
+        //TODO: check if this is legit: before, I used to pop this.
+        //Now, I'm rewriting this address. This _should_ work, but I'm
+        //not 100% sure
+        self.stack.pop();
 
         if self.stack.len() < arity as usize {
             return Result::Err(format!("expected to have \
@@ -640,18 +658,16 @@ impl Machine {
         //This will be rewritten with the data
         //since the fn call would have been something like:
         //##top##
-        //(Constructor)
-        //(Constructor a)
-        //(Constructor a $ b)
-        //(Constructor a b $ c) <- to rewrite
+        //(Prim (Constructor tag arity))
+        //(Prim (Constructor tag arity) $ a)
+        //(Prim (Constructor tag arity) a $ b)
+        //( Prim (Constructor tag arity) a b $ c) <- to rewrite
         //##bottom##
-        let mut outermost_constructor_addr_opt = None;
 
         for i in 0..arity {
             match self.heap.get(&self.stack.pop()) {
                 HeapNode::Application{arg_addr, ..} => {
                     arg_addrs.push(arg_addr);
-                    outermost_constructor_addr_opt = Some(arg_addr);
                 },
                 other @ _ => {
                     return 
@@ -663,19 +679,12 @@ impl Machine {
             }
         };
 
-        let outermost_constructor_addr = 
-            outermost_constructor_addr_opt.expect("expected constructor called\
-                                                    with arity at least 1");
-
-        self.heap.rewrite(&outermost_constructor_addr,
-                          HeapNode::Data{
+        let new_alloc_addr = self.heap.alloc(HeapNode::Data{
                               component_addrs: arg_addrs,
                                tag: tag
                           });
-
-        Result::Ok(outermost_constructor_addr)
-        
-
+        self.stack.push(new_alloc_addr);
+        Result::Ok(())
     }
     fn dump_stack(&mut self, stack: Stack) {
         self.dump.push(stack);
