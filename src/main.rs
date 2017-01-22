@@ -1023,7 +1023,7 @@ enum CoreToken {
     In,
     Case,
     Ident(String),
-    Equals,
+    Assignment,
     Semicolon,
     OpenRoundBracket,
     CloseRoundBracket,
@@ -1038,6 +1038,8 @@ enum CoreToken {
     LEQ,
     G,
     GEQ,
+    EQ,
+    NEQ,
     Plus,
     Minus,
     Mul,
@@ -1133,7 +1135,7 @@ fn tokenize_symbol(char_arr: Vec<char>, i: usize) ->
     format!("{} is not charcter, digit or symbol", c));
 
     let symbol_token_map: HashMap<&str, CoreToken> =
-        [("=", CoreToken::Equals),
+        [("=", CoreToken::Assignment),
         (";", CoreToken::Semicolon),
 
         ("(", CoreToken::OpenRoundBracket),
@@ -1149,6 +1151,10 @@ fn tokenize_symbol(char_arr: Vec<char>, i: usize) ->
         ("<=", CoreToken::LEQ),
         (">", CoreToken::G),
         (">=", CoreToken::GEQ),
+
+        ("!=", CoreToken::NEQ),
+        ("==", CoreToken::EQ),
+        //arithmetic
         ("+", CoreToken::Plus),
         ("-", CoreToken::Minus),
         ("*", CoreToken::Mul),
@@ -1329,7 +1335,7 @@ Result<(CoreVariable, Box<CoreExpr>), ParseError> {
 
     if let CoreToken::Ident(name) = c.peek() {
         try!(c.consume());
-        try!(c.expect(CoreToken::Equals));
+        try!(c.expect(CoreToken::Assignment));
 
         let rhs : CoreExpr = try!(parse_expr(&mut c));
         Result::Ok((name, Box::new(rhs)))
@@ -1534,7 +1540,8 @@ fn parse_relop(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
                               (CoreToken::LEQ, CoreExpr::Variable("<=".to_string())),
                               (CoreToken::G, CoreExpr::Variable(">".to_string())),
                               (CoreToken::GEQ, CoreExpr::Variable(">=".to_string())),
-                              (CoreToken::Equals, CoreExpr::Variable("==".to_string()))
+                              (CoreToken::EQ, CoreExpr::Variable("==".to_string())),
+                              (CoreToken::NEQ, CoreExpr::Variable("!=".to_string()))
                               ].iter().cloned().collect())
 
 
@@ -1590,7 +1597,7 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
 
             let mut sc_args = Vec::new();
             //<args>* = <expr>
-            while cursor.peek() != CoreToken::Equals &&
+            while cursor.peek() != CoreToken::Assignment &&
             cursor.peek() != CoreToken::PeekNoToken {
                 if let CoreToken::Ident(sc_arg) = cursor.peek() {
                     try!(cursor.consume());
@@ -1605,7 +1612,7 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
                 }
             }
             //take the equals
-            try!(cursor.expect(CoreToken::Equals));
+            try!(cursor.expect(CoreToken::Assignment));
             let sc_body = try!(parse_expr(&mut cursor));
 
             program.push(SupercombDefn{
