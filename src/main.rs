@@ -149,6 +149,7 @@ impl HeapNode {
     fn is_data_node(&self) -> bool {
         match self {
             &HeapNode::Num(_) => true,
+            &HeapNode::Data{..} => true,
             _ => false
         }
     }
