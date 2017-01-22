@@ -97,6 +97,12 @@ enum MachinePrimOp {
     Mul,
     Div,
     Negate,
+    G,
+    GEQ,
+    L,
+    LEQ,
+    EQ,
+    NEQ,
     Construct {
         tag: DataTag,
         arity: u32
@@ -106,11 +112,17 @@ enum MachinePrimOp {
 impl fmt::Debug for MachinePrimOp {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
-           &MachinePrimOp::Add => write!(fmt, "Add"),
-           &MachinePrimOp::Sub => write!(fmt, "Sub"),
-           &MachinePrimOp::Mul => write!(fmt, "Mul"),
-           &MachinePrimOp::Div => write!(fmt, "Div"),
            &MachinePrimOp::Negate => write!(fmt, "Negate"),
+           &MachinePrimOp::Add => write!(fmt, "+"),
+           &MachinePrimOp::Sub => write!(fmt, "-"),
+           &MachinePrimOp::Mul => write!(fmt, "*"),
+           &MachinePrimOp::Div => write!(fmt, "/"),
+           &MachinePrimOp::G => write!(fmt, ">"),
+           &MachinePrimOp::L => write!(fmt, "<"),
+           &MachinePrimOp::GEQ => write!(fmt, ">="),
+           &MachinePrimOp::LEQ => write!(fmt, "<="),
+           &MachinePrimOp::EQ => write!(fmt, "=="),
+           &MachinePrimOp::NEQ => write!(fmt, "!="),
            &MachinePrimOp::Construct{tag, arity} => {
                 write!(fmt, "Construct-tag:{} | arity: {}", tag, arity)
             }
@@ -130,7 +142,7 @@ enum HeapNode {
     Supercombinator(SupercombDefn),
     Num(i32),
     Indirection(Addr),
-    Primitive(Name, MachinePrimOp),
+    Primitive(MachinePrimOp),
     Data{tag: DataTag, component_addrs: Vec<Addr>}
 }
 
@@ -149,8 +161,8 @@ impl fmt::Debug for HeapNode {
             &HeapNode::Indirection(ref addr)  => {
                 write!(fmt, "H-indirection-{}", addr)
             }
-            &HeapNode::Primitive(ref name, ref primop)  => {
-                write!(fmt, "H-prim-{} {:#?}", name, primop)
+            &HeapNode::Primitive(ref primop)  => {
+                write!(fmt, "H-prim-{:#?}", primop)
             },
             &HeapNode::Data{ref tag, ref component_addrs} => {
                 write!(fmt, "H-data: tag: {} addrs: {:#?}", tag, component_addrs)
@@ -289,8 +301,7 @@ fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
     match node {
         &HeapNode::Indirection(addr) => format!("indirection: {}", addr),
         &HeapNode::Num(num) => format!("{}", num),
-        &HeapNode::Primitive(ref name,
-                             ref primop) => format!("prim-{}-{:#?}", name, primop),
+        &HeapNode::Primitive(ref primop) => format!("prim-{:#?}", primop),
         &HeapNode::Application{ref fn_addr, ref arg_addr} =>
         format!("({} $ {})",
                 format_heap_node(m, env, &m.heap.get(fn_addr)),
@@ -346,6 +357,15 @@ fn print_machine(m: &Machine, env: &Bindings) {
     }*/
 }
 
+fn rust_bool_to_machine_heap_node(b: bool) -> HeapNode {
+    if b {
+       HeapNode::Primitive(MachinePrimOp::Construct{tag: 1, arity: 0})
+    }
+    else {
+        HeapNode::Primitive(MachinePrimOp::Construct{tag: 0, arity: 0})
+    }
+
+}
 
 
 fn get_prelude() -> CoreProgram {
@@ -355,8 +375,8 @@ fn get_prelude() -> CoreProgram {
                       S f g x = f x (g x);\
                       compose f g x = f (g x);\
                       twice f = compose f f;\
-                      True = Pack{1, 0};\
-                      False = Pack{1, 0}\
+                      False = Pack{0, 0};\
+                      True = Pack{1, 0}\
                       ".to_string()).unwrap()
 }
 
@@ -365,6 +385,12 @@ fn get_primitives() -> Vec<(Name, MachinePrimOp)> {
     ("-".to_string(), MachinePrimOp::Sub),
     ("*".to_string(), MachinePrimOp::Mul),
     ("/".to_string(), MachinePrimOp::Div),
+    (">".to_string(), MachinePrimOp::G),
+    ("<".to_string(), MachinePrimOp::L),
+    (">=".to_string(), MachinePrimOp::GEQ),
+    ("<=".to_string(), MachinePrimOp::LEQ),
+    ("!=".to_string(), MachinePrimOp::NEQ),
+    ("==".to_string(), MachinePrimOp::EQ),
     ("negate".to_string(), MachinePrimOp::Negate),
     ].iter().cloned().collect()
 }
@@ -385,8 +411,7 @@ fn heap_build_initial(sc_defs: CoreProgram, prims: Vec<(Name, MachinePrimOp)>) -
     }
 
     for (name, prim_op) in prims.into_iter() {
-        let addr = heap.alloc(HeapNode::Primitive(name.clone(),
-                                                  prim_op));
+        let addr = heap.alloc(HeapNode::Primitive(prim_op));
         globals.insert(name, addr);
     }
 
@@ -563,7 +588,7 @@ impl Machine {
     //extractor should return an error if a node cannot have data
     //extracted from. It should return None
     fn run_num_binop<F>(&mut self, handler: F) -> Result<(), MachineError> 
-    where F: Fn(i32, i32) -> i32 {
+    where F: Fn(i32, i32) -> HeapNode {
 
         let stack_copy = self.stack.clone();
 
@@ -605,9 +630,8 @@ impl Machine {
                 None => return Result::Ok(())
             };
 
-        self.heap.rewrite(&binop_ap_addr,
-                          HeapNode::Num(handler(left_value,
-                                                right_value)));
+        self.heap.rewrite(&binop_ap_addr, handler(left_value,
+                                                  right_value));
 
         Result::Ok(())
     } //close fn
@@ -690,36 +714,57 @@ impl Machine {
                 self.stack.push(*addr);
                 Result::Ok(self.globals.clone())
             }
-            &HeapNode::Primitive(_, ref prim) => {
+            &HeapNode::Primitive(ref prim) => {
 
                 match prim {
                     &MachinePrimOp::Negate => {
                         try!(self.run_primitive_negate());
-                        Result::Ok(self.globals.clone())
                     }
                     &MachinePrimOp::Add => {
-                        try!(self.run_num_binop(|x, y| x + y));
-                        Result::Ok(self.globals.clone())
+                        try!(self.run_num_binop(|x, y| HeapNode::Num(x + y)));
                     }
                     &MachinePrimOp::Sub => {
-                        try!(self.run_num_binop(|x, y| x - y));
-                        Result::Ok(self.globals.clone())
+                        try!(self.run_num_binop(|x, y| HeapNode::Num(x - y)));
                     }
                     &MachinePrimOp::Mul => {
-                        try!(self.run_num_binop(|x, y| x * y));
-                        Result::Ok(self.globals.clone())
+                        try!(self.run_num_binop(|x, y| HeapNode::Num(x * y)));
                     }
                     &MachinePrimOp::Div => {
-                        try!(self.run_num_binop(|x, y| x / y));
-                        Result::Ok(self.globals.clone())
+                        try!(self.run_num_binop(|x, y| HeapNode::Num(x / y)));
                     }
+                    //construct a complex type
                     &MachinePrimOp::Construct {tag, arity} => {
                         try!(self.run_constructor(tag, arity));
-                        Result::Ok(self.globals.clone())
 
                     }
-                }
+                    //boolean ops
+                    &MachinePrimOp::G => {
+                        try!(self.run_num_binop(
+                                |x, y| rust_bool_to_machine_heap_node(x > y)));
+                    }
+                    &MachinePrimOp::GEQ => {
+                        try!(self.run_num_binop(
+                                |x, y| rust_bool_to_machine_heap_node(x >= y)));
+                    }
+                    &MachinePrimOp::L => {
+                        try!(self.run_num_binop(
+                                |x, y| rust_bool_to_machine_heap_node(x < y)));
+                    }
+                    &MachinePrimOp::LEQ => {
+                        try!(self.run_num_binop(
+                                |x, y| rust_bool_to_machine_heap_node(x <= y)));
+                    }
+                    &MachinePrimOp::EQ => {
+                        try!(self.run_num_binop(
+                                |x, y| rust_bool_to_machine_heap_node(x == y)));
+                    }
+                    &MachinePrimOp::NEQ => {
+                        try!(self.run_num_binop(
+                                |x, y| rust_bool_to_machine_heap_node(x != y)));
+                    }
+                };
 
+                Result::Ok(self.globals.clone())
 
             }
             &HeapNode::Supercombinator(ref sc_defn) => {
@@ -825,7 +870,7 @@ impl Machine {
                                         *addr,
                                         &mut heap),
 
-            HeapNode::Primitive(_, _) => {}
+            HeapNode::Primitive(_) => {}
             HeapNode::Supercombinator(_) => {}
             HeapNode::Num(_) => {},
         }
@@ -912,8 +957,7 @@ impl Machine {
         }
         CoreExpr::Pack{tag, arity} => {
             let prim_for_pack = 
-                HeapNode::Primitive("Pack".to_string(),
-                                    MachinePrimOp::Construct{
+                HeapNode::Primitive(MachinePrimOp::Construct{
                                         tag: tag,
                                         arity: arity
                                     });
@@ -1717,7 +1761,5 @@ fn main() {
             print!("*** MACHINE ENDED ***");
 
         }
-
-
     }
 }
