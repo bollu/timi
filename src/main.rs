@@ -99,12 +99,12 @@ enum MachinePrimOp {
     Negate,
     Construct {
         tag: DataTag,
-        num_args: u32
+        arity: u32
     }
 }
 
 
-type DataTag = i32;
+type DataTag = u32;
 
 //heap nodes
 #[derive(Clone, PartialEq, Eq)]
@@ -621,15 +621,15 @@ impl Machine {
     //called
     fn run_constructor(&mut self,
                        tag: DataTag,
-                       num_args: u32) -> Result<Addr, MachineError> {
+                       arity: u32) -> Result<Addr, MachineError> {
         //pop out constructor
         let _ = self.stack.pop();
 
-        if self.stack.len() < num_args as usize {
+        if self.stack.len() < arity as usize {
             return Result::Err(format!("expected to have \
                                        {} arguments to {} \
                                        constructor, found {}",
-                                       num_args, 
+                                       arity, 
                                        tag,
                                        self.stack.len()));
         }
@@ -646,7 +646,7 @@ impl Machine {
         //##bottom##
         let mut outermost_constructor_addr_opt = None;
 
-        for i in 0..num_args {
+        for i in 0..arity {
             match self.heap.get(&self.stack.pop()) {
                 HeapNode::Application{arg_addr, ..} => {
                     arg_addrs.push(arg_addr);
@@ -723,11 +723,8 @@ impl Machine {
                         try!(self.run_num_binop(|x, y| x / y));
                         Result::Ok(self.globals.clone())
                     }
-                    &MachinePrimOp::Construct {
-                        tag,
-                        num_args
-                    } => {
-                        try!(self.run_constructor(tag, num_args));
+                    &MachinePrimOp::Construct {tag, arity} => {
+                        try!(self.run_constructor(tag, arity));
                         Result::Ok(self.globals.clone())
 
                     }
@@ -915,16 +912,26 @@ impl Machine {
                 arg_addr: arg_addr
             }))
 
-        },
+        }
         CoreExpr::Variable(vname) => {
             match env.get(&vname) {
                 Some(addr) => Result::Ok(*addr),
                 None => Result::Err(format!("unable to find variable in heap: |{}|", vname))
             }
 
-        },
-        CoreExpr::Pack{tag, arity} => panic!("instantiate unimplemented \
-                                              for CoreExpr::Pack")
+        }
+        CoreExpr::Pack{tag, arity} => {
+            let prim_for_pack = 
+                HeapNode::Primitive("Pack".to_string(),
+                                    MachinePrimOp::Construct{
+                                        tag: tag,
+                                        arity: arity
+                                    });
+
+            Result::Ok(self.heap.alloc(prim_for_pack))
+        
+        } 
+                                     
     }
 }
 
@@ -1048,7 +1055,7 @@ fn identifier_str_to_token(token_str: &str) -> CoreToken {
         "case" => CoreToken::Case,
         "Pack" => CoreToken::Pack,
         //TODO: do I want to allow lower case things here?
-        "pack" => CoreToken::Pack,
+        //"pack" => CoreToken::Pack,
         other @ _ => CoreToken::Ident(other.to_string())
     }
 }
@@ -1085,11 +1092,13 @@ fn tokenize_symbol(char_arr: Vec<char>, i: usize) ->
     let symbol_token_map: HashMap<&str, CoreToken> =
         [("=", CoreToken::Equals),
         (";", CoreToken::Semicolon),
+
         ("(", CoreToken::OpenRoundBracket),
         (")", CoreToken::CloseRoundBracket),
-        ("(", CoreToken::OpenRoundBracket),
-        ("{", CoreToken::CloseCurlyBracket),
-        ("}", CoreToken::OpenCurlyBracket),
+
+        ("{", CoreToken::OpenCurlyBracket),
+        ("}", CoreToken::CloseCurlyBracket),
+
         (",", CoreToken::Comma),
         ("|", CoreToken::Or),
         ("&", CoreToken::And),
@@ -1338,8 +1347,6 @@ fn parse_let(mut c: &mut ParserCursor) -> Result<CoreLet, ParseError> {
 
 //pack := Pack "{" tag "," arity "}"
 fn parse_pack(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
-    println!("parsing pack..");
-
     try!(c.expect(CoreToken::Pack));
     try!(c.expect(CoreToken::OpenCurlyBracket));
 
@@ -1366,7 +1373,6 @@ fn parse_pack(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
     };
 
     try!(c.expect(CoreToken::CloseCurlyBracket));
-    println!("parsed pack: tag: {}, arity: {}", tag, arity);
     Result::Ok(CoreExpr::Pack{tag: tag, arity: arity })
 
 
@@ -1383,7 +1389,7 @@ fn parse_application(mut cursor: &mut ParserCursor) ->
         if let CoreToken::Pack = c {
             let pack_expr = try!(parse_pack(&mut cursor));
             application_vec.push(pack_expr);
-        }else if is_token_atomic_expr_start(c) {
+        } else if is_token_atomic_expr_start(c) {
             let atomic_expr = try!(parse_atomic_expr(&mut cursor));
             application_vec.push(atomic_expr);
         } else {
