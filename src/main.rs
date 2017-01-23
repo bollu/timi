@@ -155,19 +155,19 @@ impl fmt::Debug for HeapNode {
                 write!(fmt, "H-({} $ {})", fn_addr, arg_addr)
             }
             &HeapNode::Supercombinator(ref sc_defn) => {
-                write!(fmt, "H-supcomb-{:#?}", sc_defn)
+                write!(fmt, "H-supcomb({:#?})", sc_defn)
             },
             &HeapNode::Num(ref num)  => {
-                write!(fmt, "H-{}", num)
+                write!(fmt, "H({})", num)
             }
             &HeapNode::Indirection(ref addr)  => {
-                write!(fmt, "H-indirection-{}", addr)
+                write!(fmt, "H-indirection({})", addr)
             }
             &HeapNode::Primitive(ref primop)  => {
-                write!(fmt, "H-prim-{:#?}", primop)
+                write!(fmt, "H-prim({:#?})", primop)
             },
             &HeapNode::Data{ref tag, ref component_addrs} => {
-                write!(fmt, "H-data: tag: {} addrs: {:#?}", tag, component_addrs)
+                write!(fmt, "H-data(tag: {} addrs: {:#?})", tag, component_addrs)
             }
         }
     }
@@ -371,7 +371,6 @@ fn bool_to_heap_node(b: bool) -> HeapNode {
     else {
         HeapNode::Primitive(MachinePrimOp::Construct{tag: 0, arity: 0})
     }
-
 }
 
 
@@ -383,7 +382,8 @@ fn get_prelude() -> CoreProgram {
                       compose f g x = f (g x);\
                       twice f = compose f f;\
                       False = Pack{0, 0};\
-                      True = Pack{1, 0}\
+                      True = Pack{1, 0};\
+                      fac n = if (n == 0) 1 (n * fac (n - 1))\
                       ".to_string()).unwrap()
 }
 
@@ -1839,7 +1839,7 @@ fn test_if_false_branch() {
 fn test_if_cond_complex_branch() {
     let mut m = run_machine("main = if (1 < 2) 1 2");
     assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(1));
-    
+
     m = run_machine("main = if (1 > 2) 1 2");
     assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(2));
 }
@@ -1848,7 +1848,7 @@ fn test_if_cond_complex_branch() {
 fn test_if_cond_complex_result() {
     let mut m = run_machine("main = if True (100 + 100) (100 - 100)");
     assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(200));
-    
+
     m = run_machine("main = if False (100 + 100) (100 - 100)");
     assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(0));
 }
@@ -1916,8 +1916,7 @@ fn main() {
                 }
             }
 
-            print!("*** MACHINE ENDED ***");
-
+            print!("=== MACHINE ENDED ===");
         }
     }
 }
