@@ -106,7 +106,8 @@ enum MachinePrimOp {
     Construct {
         tag: DataTag,
         arity: u32
-    }
+    },
+    If
 }
 
 impl fmt::Debug for MachinePrimOp {
@@ -123,6 +124,7 @@ impl fmt::Debug for MachinePrimOp {
            &MachinePrimOp::LEQ => write!(fmt, "<="),
            &MachinePrimOp::EQ => write!(fmt, "=="),
            &MachinePrimOp::NEQ => write!(fmt, "!="),
+           &MachinePrimOp::If => write!(fmt, "if"),
            &MachinePrimOp::Construct{tag, arity} => {
                 write!(fmt, "Construct-tag:{} | arity: {}", tag, arity)
             }
@@ -232,17 +234,17 @@ struct Heap {
 }
 
 impl fmt::Debug for Heap {
-   fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-    let mut keyvals : Vec<(&Addr, &HeapNode)> = self.heap.iter().collect();
-    keyvals.sort_by(|a, b| a.0.cmp(b.0));
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        let mut keyvals : Vec<(&Addr, &HeapNode)> = self.heap.iter().collect();
+        keyvals.sort_by(|a, b| a.0.cmp(b.0));
 
-    for &(key, val) in keyvals.iter().rev() {
-        try!(write!(fmt, "\t{} => {:#?}\n", key, val));
+        for &(key, val) in keyvals.iter().rev() {
+            try!(write!(fmt, "\t{} => {:#?}\n", key, val));
+        }
+
+        return Result::Ok(())
+
     }
-
-    return Result::Ok(())
-
-}
 }
 
 impl Heap {
@@ -347,17 +349,9 @@ fn print_machine(m: &Machine, env: &Bindings) {
     for stack in  m.dump.iter().rev() {
         print_stack(m, env, stack);
     }
-
-    /*
-    print!( "\n*** env: ***\n");
-    let mut env_ordered : Vec<(&Name, &Addr)> = env.iter().collect();
-    env_ordered.sort_by(|e1, e2| e1.0.cmp(e2.0));
-    for &(name, addr) in env_ordered.iter() {
-        print!("{} => {}\n", name, format_heap_node(m, env, &m.heap.get(addr)));
-    }*/
 }
 
-fn rust_bool_to_machine_heap_node(b: bool) -> HeapNode {
+fn bool_to_heap_node(b: bool) -> HeapNode {
     if b {
        HeapNode::Primitive(MachinePrimOp::Construct{tag: 1, arity: 0})
     }
@@ -392,6 +386,7 @@ fn get_primitives() -> Vec<(Name, MachinePrimOp)> {
     ("!=".to_string(), MachinePrimOp::NEQ),
     ("==".to_string(), MachinePrimOp::EQ),
     ("negate".to_string(), MachinePrimOp::Negate),
+    ("if".to_string(), MachinePrimOp::If),
     ].iter().cloned().collect()
 }
 
@@ -419,6 +414,7 @@ fn heap_build_initial(sc_defs: CoreProgram, prims: Vec<(Name, MachinePrimOp)>) -
 }
 
 
+// *** INTERPRETER ***
 //interreter
 
 impl Machine {
@@ -518,47 +514,7 @@ impl Machine {
         }
         Result::Ok(env)
     }
-
-    //get a num parameter, or sets up the state of the machine
-    //to be able to do so
-    fn setup_get_number_argument(&mut self,
-                                 stack_to_dump: Stack,
-                                 ap_addr: Addr) -> 
-        Result<Option<i32>, MachineError> {
-
-        let (arg_addr, fn_addr) = match self.heap.get(&ap_addr) {
-            HeapNode::Application{arg_addr, fn_addr} => (arg_addr, fn_addr),
-            other @ _ => 
-                return Result::Err(format!("expected application at {}, \
-                                           found {:#?}",
-                                           ap_addr,
-                                           other))
-        };
-
-        let arg = self.heap.get(&arg_addr);
-
-        match arg {
-            HeapNode::Num(i) => return Result::Ok(Some(i)),
-            HeapNode::Indirection(ind_addr) => {
-                //pop off the application and then create a new
-                //application that does into the indirection address
-                self.heap.rewrite(&ap_addr, 
-                                  HeapNode::Application{
-                                      fn_addr: fn_addr,
-                                      arg_addr: ind_addr
-                                  });
-                Result::Ok(None)
-
-            }
-            _ => {
-                self.dump_stack(stack_to_dump);
-                self.stack.push(arg_addr);
-                Result::Ok(None)
-            }
-        }
-        
-
-    }
+    
 
     fn run_primitive_negate(&mut self) -> Result<(), MachineError> {
         //we need a copy of the stack to push into the dump
@@ -574,10 +530,12 @@ impl Machine {
         //Apply <negprim> <argument>
         //look at what argument is and dispatch work
         let to_negate_val = 
-            match try!(self.setup_get_number_argument(stack_copy, 
-                                                      neg_ap_addr)) {
-            Some(val) => val,
-            None => return Result::Ok(())
+            match try!(setup_heap_node_access(self,
+                                              stack_copy, 
+                                              neg_ap_addr,
+                                              heap_try_num_access)) {
+            HeapAccessValue::Found(val) => val,
+            HeapAccessValue::SetupExecution => return Result::Ok(())
         };
 
         self.heap.rewrite(&neg_ap_addr, HeapNode::Num(-to_negate_val));
@@ -610,10 +568,12 @@ impl Machine {
         let left_value = {
             //pop off left value
             let left_ap_addr = self.stack.pop();
-            match try!(self.setup_get_number_argument(stack_copy.clone(),
-                                                      left_ap_addr)) {
-                Some(val) => val,
-                None => return Result::Ok(())
+            match try!(setup_heap_node_access(self,
+                                                   stack_copy.clone(),
+                                                    left_ap_addr,
+                                                    heap_try_num_access)) {
+                HeapAccessValue::Found(val) => val,
+                HeapAccessValue::SetupExecution => return Result::Ok(())
             }
         };
 
@@ -624,10 +584,12 @@ impl Machine {
         //(instead of creating a fresh node)
         let binop_ap_addr = self.stack.peek();
         let right_value = 
-            match try!(self.setup_get_number_argument(stack_copy,
-                                                      binop_ap_addr)) {
-                Some(val) => val,
-                None => return Result::Ok(())
+            match try!(setup_heap_node_access(self, 
+                                              stack_copy,
+                                              binop_ap_addr,
+                                              heap_try_num_access)) {
+                HeapAccessValue::Found(val) => val,
+                HeapAccessValue::SetupExecution => return Result::Ok(())
             };
 
         self.heap.rewrite(&binop_ap_addr, handler(left_value,
@@ -694,6 +656,11 @@ impl Machine {
         self.dump.push(stack);
         self.stack = Stack::new();
     }
+    
+    fn run_prim_if(&mut self) -> Result<(), MachineError> {
+        panic!("unimplemented")
+
+    }
 
 
     //actually run_step the computation
@@ -742,32 +709,36 @@ impl Machine {
             //boolean ops
             &HeapNode::Primitive(MachinePrimOp::G) => {
                 try!(self.run_num_binop(
-                        |x, y| rust_bool_to_machine_heap_node(x > y)));
+                        |x, y| bool_to_heap_node(x > y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::GEQ) => {
                 try!(self.run_num_binop(
-                        |x, y| rust_bool_to_machine_heap_node(x >= y)));
+                        |x, y| bool_to_heap_node(x >= y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::L) => {
                 try!(self.run_num_binop(
-                        |x, y| rust_bool_to_machine_heap_node(x < y)));
+                        |x, y| bool_to_heap_node(x < y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::LEQ) => {
                 try!(self.run_num_binop(
-                        |x, y| rust_bool_to_machine_heap_node(x <= y)));
+                        |x, y| bool_to_heap_node(x <= y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::EQ) => {
                 try!(self.run_num_binop(
-                        |x, y| rust_bool_to_machine_heap_node(x == y)));
+                        |x, y| bool_to_heap_node(x == y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::NEQ) => {
                 try!(self.run_num_binop(
-                        |x, y| rust_bool_to_machine_heap_node(x != y)));
+                        |x, y| bool_to_heap_node(x != y)));
+                Result::Ok(self.globals.clone())
+            }
+            &HeapNode::Primitive(MachinePrimOp::If) => {
+                try!(self.run_prim_if());
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Supercombinator(ref sc_defn) => {
@@ -972,6 +943,84 @@ impl Machine {
 }
 
 
+//represents what happens when you try to access a heap node for a 
+//primitive run. Either you found the required heap node,
+//or you ask to setup execution since there is a frozen supercombinator
+//node or something else that needs to be evaluated
+enum HeapAccessValue<T> {
+    Found(T),
+    SetupExecution
+}
+
+type HeapAccessResult<T> = Result<HeapAccessValue<T>, MachineError>;
+
+//get a heap node of the kind that handler wants to get,
+//otherwise setup the heap so that unevaluated code
+//is evaluated to get something of this type
+fn setup_heap_node_access<F, T>(m: &mut Machine,
+                          stack_to_dump: Stack,
+                          ap_addr: Addr,
+                          access_handler: F ) -> HeapAccessResult<T>
+    where F: Fn(HeapNode) -> Result<T, MachineError> {
+
+    let (arg_addr, fn_addr) = match m.heap.get(&ap_addr) {
+        HeapNode::Application{arg_addr, fn_addr} => (arg_addr, fn_addr),
+        other @ _ => 
+            return Result::Err(format!("expected application at {}, \
+                                       found {:#?}",
+                                       ap_addr,
+                                       other))
+    };
+
+    let arg = m.heap.get(&arg_addr);
+    
+    //setup indirection
+    if let HeapNode::Indirection(ind_addr) = arg {
+        //pop off the application and then create a new
+        //application that does into the indirection address
+        m.heap.rewrite(&ap_addr, 
+                       HeapNode::Application {
+                          fn_addr: fn_addr,
+                          arg_addr: ind_addr
+                      });
+        return Result::Ok(HeapAccessValue::SetupExecution)
+    };
+
+
+    //it's not a data node, so this is something we need to still execute
+    if !arg.is_data_node() {
+        m.dump_stack(stack_to_dump);
+        m.stack.push(arg_addr);
+        return Result::Ok(HeapAccessValue::SetupExecution)
+    }
+
+    //give the node the access handler. it will either return the value
+    //or fail to do so
+    let access_result = try!(access_handler(arg));
+    Result::Ok(HeapAccessValue::Found(access_result))
+}
+
+fn heap_try_num_access(h: HeapNode) -> Result<i32, MachineError> {
+    match h {
+        HeapNode::Num(i) => Result::Ok(i),
+        other @ _ => Result::Err(format!(
+                "expected number, found: {:#?}", other))
+    }
+}
+
+
+fn heap_try_bool_access(h: HeapNode) -> Result<bool, MachineError> {
+    match h {
+        //TODO: make a separate function that takes HeapNode::Data
+        //and returns the correct rust boolean
+        HeapNode::Data{tag:0, ..} => Result::Ok(false),
+        HeapNode::Data{tag: 1, ..} => Result::Ok(true),
+        other @ _ => Result::Err(format!(
+                "expected true / false, found: {:#?}", other))
+    }
+}
+
+
 fn machine_is_final_state(m: &Machine) -> bool {
     assert!(m.stack.len() > 0, "expect stack to have at least 1 node");
 
@@ -1106,8 +1155,6 @@ fn identifier_str_to_token(token_str: &str) -> CoreToken {
         "in" => CoreToken::In,
         "case" => CoreToken::Case,
         "Pack" => CoreToken::Pack,
-        //TODO: do I want to allow lower case things here?
-        //"pack" => CoreToken::Pack,
         other @ _ => CoreToken::Ident(other.to_string())
     }
 }
