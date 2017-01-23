@@ -15,7 +15,6 @@ pub struct CoreLet {
 }
 
 
-
 #[derive(Clone, PartialEq, Eq)]
 pub enum CoreExpr {
     //change this?
@@ -83,14 +82,16 @@ pub type CoreProgram = Vec<SupercombDefn>;
 
 
 
-use self::ansi_term::Colour::{Blue, Green, Cyan, Red, Black};
+use self::ansi_term::Colour::{Green};
 
 pub fn format_addr_string(addr: &Addr)  -> String {
     format!("{}{}", Green.paint("0x"), Green.underline().paint(format!("{:X}", addr)))
 }
 
+/*
 pub fn format_name_string(name: &str) -> String {
     format!("{}", Cyan.paint(name))
 }
+*/
 
 

@@ -1,3 +1,5 @@
+#[macro_use]
+extern crate prettytable;
 
 use std::io; //for IO
 

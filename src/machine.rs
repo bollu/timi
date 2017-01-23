@@ -1,5 +1,4 @@
 extern crate ansi_term;
-extern crate pad;
 
 use std::fmt;
 use std::collections::HashMap;
@@ -14,7 +13,9 @@ use frontend;
 
 use self::ansi_term::Colour::{Blue, Red, Black};
 use self::ansi_term::Style;
-use self::pad::{PadStr, Alignment};
+
+use prettytable::Table;
+use prettytable::format::consts::FORMAT_CLEAN;
 
 
 //primitive operations on the machine
@@ -135,11 +136,16 @@ impl fmt::Debug for HeapNode {
                             format_heap_tag("H-Data"),
                             tag));
 
-                try!(write!(fmt, "data: "));
-                for addr in component_addrs.iter() {
-                    try!(write!(fmt, "{} ", format_addr_string(addr)));
+                if component_addrs.len() == 0 {
+                    try!(write!(fmt, ")"))
                 }
-                try!(write!(fmt, ")"));
+                else {
+                    try!(write!(fmt, "data: "));
+                    for addr in component_addrs.iter() {
+                        try!(write!(fmt, "{} ", format_addr_string(addr)));
+                    }
+                    try!(write!(fmt, ")"));
+                }
                 Result::Ok(())
 
             }
@@ -174,13 +180,17 @@ fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
         }
         &HeapNode::Data{ref tag, ref component_addrs} => {
             let mut data_str = String::new();
-            data_str  += &format!("data-(tag:{:#?} components:{:#?})",
-                                  tag,
-                                  component_addrs);
-            for c in component_addrs.iter() {
-                data_str += 
-                &format!("{}", format_heap_node(m, env, &m.heap.get(c)))
-            }
+            data_str  += &format!("data-(tag:{:#?}",
+                                  tag);
+
+            if component_addrs.len() == 0 {
+                data_str += ")";
+            }else{
+                for c in component_addrs.iter() {
+                    data_str += 
+                    &format!("{}", format_heap_node(m, env, &m.heap.get(c)))
+                }
+            } 
             data_str
         }
 
@@ -210,7 +220,6 @@ fn collect_addrs_from_heap_node(heap: &Heap, node: &HeapNode, collection: &mut H
         &HeapNode::Num(_) => {}
     };
 }
-
 
 fn unwrap_heap_node_to_ap(node: HeapNode) -> 
 Result<(Addr, Addr), MachineError> {
@@ -1122,16 +1131,23 @@ fn print_stack(m: &Machine, env: &Bindings, s: &Stack) {
 
     }
     else {
-        println!("  {}", Black.underline().paint("## top ##"));
+        println!("{}", Black.underline().paint("## top ##"));
+
+        let mut table = Table::new();
 
         for addr in s.iter() {
-            println!("  {} -> {} | {:#?}",
-                  format_addr_string(addr).pad_to_width_with_alignment(20, Alignment::Right),
-                  format_heap_node(m, env, &m.heap.get(addr)).pad_to_width_with_alignment(30, Alignment::Left),
-                  &m.heap.get(addr));
+            let node = m.heap.get(addr);
+            table.add_row(row![format_addr_string(addr),
+                          "->",
+                          format_heap_node(m, env, &node),
+                          format!("{:#?}", node)]);
+
         }
+        table.set_format(*FORMAT_CLEAN);
+        table.printstd();
+
     }
-    print!("  {}", Black.underline().paint("## bottom ##\n"));
+    print!("{}", Black.underline().paint("## bottom ##\n"));
 }
 
 pub fn print_machine_stack(m: &Machine, env: &Bindings) {
@@ -1160,15 +1176,20 @@ pub fn print_machine(m: &Machine, env: &Bindings) {
         println!("  Empty");
     }
     else {
+        let mut table = Table::new();
         for addr in addr_collection.iter() {
-                println!("  {} -> {} {} {:#?}", 
-                     format_addr_string(addr).pad_to_width_with_alignment(20, Alignment::Right),
-                     format_heap_node(m, env, &m.heap.get(addr)).pad_to_width_with_alignment(30, Alignment::Left),
-                     Style::new().bold().paint("|"),
-                     m.heap.get(addr));
+
+            let node = m.heap.get(addr);
+            table.add_row(row![format_addr_string(addr),
+                          "->",
+                          format_heap_node(m, env, &node),
+                          format!("{:#?}", node)]);
 
 
         }
+        table.set_format(*FORMAT_CLEAN);
+        table.printstd();
+
     }
     println!("{}", Red.bold().paint("===///==="));
 }
