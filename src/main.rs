@@ -1859,24 +1859,25 @@ fn main() {
     let mut pause_per_step = true;
 
     loop {
-        let mut input : String = String::new();
         print!("\n>>>");
         io::stdout().flush().unwrap();
 
-        match io::stdin().read_line(&mut input) {
-            Ok(_) => {}
-            Err(error) => panic!("error in read_line: {}", error)
+        let input = {
+            let mut input : String = String::new();
+            match io::stdin().read_line(&mut input) {
+                Ok(_) => {}
+                Err(error) => panic!("error in read_line: {}", error)
+            };
+            input.trim().to_string()
         };
 
-        //FIXME: why does this not work?    
         if input == "exit".to_string() {
-            print!("input is EXIT");
             break;
         }
-        else if &input == "step" {
+        else if input == "step" {
             pause_per_step = true;
         }
-        else if &input =="nostep" {
+        else if input =="nostep" {
             pause_per_step = false;
         }
         else {
