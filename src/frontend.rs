@@ -599,6 +599,59 @@ Result<CoreExpr, ParseError> {
     }
 }
 
+fn parse_supercombinator(mut c: &mut ParserCursor) ->
+Result<SupercombDefn, ParseError> {
+
+    let sc_name = match try!(c.consume()) {
+        CoreToken::Ident(name) => name,
+        other @ _ => return Result::Err(ParseError::ErrorStr(format!(
+                        "super combinator name expected, {:#?} encountered",
+                        other)))
+    };
+
+    let mut sc_args = Vec::new();
+
+    //<args>* = <expr>
+    while c.peek() != CoreToken::Assignment &&
+        c.peek() != CoreToken::PeekNoToken {
+
+        if let CoreToken::Ident(sc_arg) = c.peek() {
+            try!(c.consume());
+            sc_args.push(sc_arg);
+
+        }
+        else {
+            return Result::Err(ParseError::ErrorStr(format!(
+                                "super combinator argument expected, \
+                                {:#?} encountered",
+                                c.consume())));
+            }
+    }
+
+    //take the equals
+    try!(c.expect(CoreToken::Assignment));
+    let sc_body = try!(parse_expr(&mut c));
+
+    Result::Ok(SupercombDefn{
+        name: sc_name,
+        args: sc_args,
+        body: sc_body
+    })
+
+}
+
+pub fn string_to_expr(string : String) -> Result<CoreExpr, ParseError> {
+    let tokens : Vec<CoreToken> = try!(tokenize(string));
+    let mut cursor: ParserCursor = ParserCursor::new(tokens);
+
+    parse_expr(&mut cursor)
+}
+
+pub fn string_to_sc_defn(string: String) -> Result<SupercombDefn, ParseError> {
+    let tokens : Vec<CoreToken> = try!(tokenize(string));
+    let mut cursor: ParserCursor = ParserCursor::new(tokens);
+    parse_supercombinator(&mut cursor)    
+}
 
 
 
@@ -610,56 +663,33 @@ pub fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
     let mut program : CoreProgram = Vec::new();
 
     loop {
-        if let CoreToken::Ident(sc_name) = cursor.peek() {
-            try!(cursor.consume());
-
-            let mut sc_args = Vec::new();
-            //<args>* = <expr>
-            while cursor.peek() != CoreToken::Assignment &&
-                cursor.peek() != CoreToken::PeekNoToken {
-                    if let CoreToken::Ident(sc_arg) = cursor.peek() {
-                        try!(cursor.consume());
-                        sc_args.push(sc_arg);
-
-                    }
-                    else {
-                        return Result::Err(ParseError::ErrorStr(format!(
-                                    "super combinator argument expected, \
-                                    {:#?} encountered",
-                                    cursor.consume())));
-                    }
-                }
-            //take the equals
-            try!(cursor.expect(CoreToken::Assignment));
-            let sc_body = try!(parse_expr(&mut cursor));
-
-            program.push(SupercombDefn{
-                name: sc_name,
-                args: sc_args,
-                body: sc_body
-            });
-
-            match cursor.peek() {
-                //we ran out of tokens, this is the last SC
-                //break
-                CoreToken::PeekNoToken => break,
-                //we got a ;, more SCs to come
-                CoreToken::Semicolon => {
-                    try!(cursor.expect(CoreToken::Semicolon));
-                    continue
-                },
-                other @ _ => {
-                    return Result::Err(ParseError::ErrorStr(format!(
-                                "expected either ; or EOF, found {:#?}",
-                                other)));
-                }
-            }
-
-        } else {
-            return Result::Err(ParseError::ErrorStr(format!(
+        //we need an identifier that is the supercombinator name
+        match cursor.peek() {
+            CoreToken::Ident(_)  => {}
+            _ => return Result::Err(ParseError::ErrorStr(format!(
                         "super combinator name expected, {:#?} encountered",
-                        cursor.consume())));
+                        cursor.consume())))   
+        };
+
+        let sc = try!(parse_supercombinator(&mut cursor));
+        program.push(sc);
+
+        match cursor.peek() {
+            //we ran out of tokens, this is the last SC
+            //break
+            CoreToken::PeekNoToken => break,
+            //we got a ;, more SCs to come
+            CoreToken::Semicolon => {
+                try!(cursor.expect(CoreToken::Semicolon));
+                continue
+            },
+            other @ _ => {
+                return Result::Err(ParseError::ErrorStr(format!(
+                            "expected either ; or EOF, found {:#?}",
+                            other)));
+            }
         }
+
     }
     Result::Ok(program)
 }
