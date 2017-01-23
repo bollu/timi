@@ -181,8 +181,17 @@ impl HeapNode {
             _ => false
         }
     }
+
 }
 
+fn unwrap_heap_node_to_ap(node: HeapNode) -> Result<(Addr, Addr), MachineError> {
+    match node {
+        HeapNode::Application{fn_addr, arg_addr} => 
+            Result::Ok((fn_addr, arg_addr)),
+        other @ _ => Result::Err(format!(
+                "expected application node, found: {:#?}", other))
+    }
+}
 
 //unsued for mark 1
 // a dump is a vector of stacks
@@ -502,13 +511,7 @@ impl Machine {
          sc_defn.args.iter().zip(stack_args.iter()) {
 
             let application = heap.get(application_addr);
-            let param_addr = match application {
-                HeapNode::Application{arg_addr, ..} => arg_addr,
-                _ => return 
-                    Result::Err("did not find application node when\
-                                unwinding stack for supercombinator"
-                                .to_string())
-            };
+            let (_, param_addr) = try!(unwrap_heap_node_to_ap(application));
             env.insert(arg_name.clone(), param_addr);
 
         }
@@ -545,7 +548,7 @@ impl Machine {
 
     //extractor should return an error if a node cannot have data
     //extracted from. It should return None
-    fn run_num_binop<F>(&mut self, handler: F) -> Result<(), MachineError> 
+    fn run_primitive_num_binop<F>(&mut self, handler: F) -> Result<(), MachineError> 
     where F: Fn(i32, i32) -> HeapNode {
 
         let stack_copy = self.stack.clone();
@@ -630,19 +633,9 @@ impl Machine {
         //( Prim (Constructor tag arity) a b $ c) <- to rewrite
         //##bottom##
 
-        for i in 0..arity {
-            match self.heap.get(&self.stack.pop()) {
-                HeapNode::Application{arg_addr, ..} => {
-                    arg_addrs.push(arg_addr);
-                },
-                other @ _ => {
-                    return 
-                        Result::Err(format!("expected function application to\
-                                            get {} argument, found {:#?}",
-                                            i,
-                                            other));
-                }
-            }
+        for _ in 0..arity {
+            let (_, arg_addr) = try!(unwrap_heap_node_to_ap(self.heap.get(&self.stack.pop())));
+            arg_addrs.push(arg_addr);
         };
 
         let new_alloc_addr = self.heap.alloc(HeapNode::Data{
@@ -657,9 +650,53 @@ impl Machine {
         self.stack = Stack::new();
     }
     
-    fn run_prim_if(&mut self) -> Result<(), MachineError> {
-        panic!("unimplemented")
+    fn run_primitive_if(&mut self) -> Result<(), MachineError> {
+        let stack_copy = self.stack.clone();
 
+        //remove if condition
+        self.stack.pop();
+
+        //## top of stack
+        //if 
+        //if $ <cond> <- if_ap_addr
+        //if <cond> $ <then>
+        //if <cond> <then> $ <else>
+        //## bottom of stack
+        let if_ap_addr = self.stack.peek();
+
+        let then_ap_addr = try!(self.stack
+                                .iter()
+                                .nth(1)
+                                .ok_or("expected then application, was not found on stack".to_string())).clone();
+
+        let else_ap_addr = try!(self.stack
+                            .iter()
+                            .nth(2)
+                            .ok_or("expected else application, was not found on stack".to_string())).clone();
+
+        let cond : bool = {
+            let (_, cond_addr) = try!(unwrap_heap_node_to_ap(self.heap.get(&if_ap_addr)));
+            match try!(setup_heap_node_access(self,
+                                              stack_copy,
+                                              cond_addr,
+                                              heap_try_bool_access)) {
+                HeapAccessValue::Found(b) => b,
+                HeapAccessValue::SetupExecution => return Result::Ok(())
+            }
+        };
+        
+        
+        if cond {
+            let (_, then_addr) = try!(unwrap_heap_node_to_ap(self.heap.get(&then_ap_addr)));
+            let then_node = self.heap.get(&then_addr);
+            self.heap.rewrite(&if_ap_addr, then_node);
+        }
+        else {
+            let (_, else_addr) = try!(unwrap_heap_node_to_ap(self.heap.get(&else_ap_addr)));
+            let else_node = self.heap.get(&else_addr);
+            self.heap.rewrite(&if_ap_addr, else_node);
+        }
+        Result::Ok(())
     }
 
 
@@ -686,19 +723,19 @@ impl Machine {
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::Add) => {
-                try!(self.run_num_binop(|x, y| HeapNode::Num(x + y)));
+                try!(self.run_primitive_num_binop(|x, y| HeapNode::Num(x + y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::Sub) => {
-                try!(self.run_num_binop(|x, y| HeapNode::Num(x - y)));
+                try!(self.run_primitive_num_binop(|x, y| HeapNode::Num(x - y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::Mul) => {
-                try!(self.run_num_binop(|x, y| HeapNode::Num(x * y)));
+                try!(self.run_primitive_num_binop(|x, y| HeapNode::Num(x * y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::Div) => {
-                try!(self.run_num_binop(|x, y| HeapNode::Num(x / y)));
+                try!(self.run_primitive_num_binop(|x, y| HeapNode::Num(x / y)));
                 Result::Ok(self.globals.clone())
             }
             //construct a complex type
@@ -708,37 +745,37 @@ impl Machine {
             }
             //boolean ops
             &HeapNode::Primitive(MachinePrimOp::G) => {
-                try!(self.run_num_binop(
+                try!(self.run_primitive_num_binop(
                         |x, y| bool_to_heap_node(x > y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::GEQ) => {
-                try!(self.run_num_binop(
+                try!(self.run_primitive_num_binop(
                         |x, y| bool_to_heap_node(x >= y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::L) => {
-                try!(self.run_num_binop(
+                try!(self.run_primitive_num_binop(
                         |x, y| bool_to_heap_node(x < y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::LEQ) => {
-                try!(self.run_num_binop(
+                try!(self.run_primitive_num_binop(
                         |x, y| bool_to_heap_node(x <= y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::EQ) => {
-                try!(self.run_num_binop(
+                try!(self.run_primitive_num_binop(
                         |x, y| bool_to_heap_node(x == y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::NEQ) => {
-                try!(self.run_num_binop(
+                try!(self.run_primitive_num_binop(
                         |x, y| bool_to_heap_node(x != y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::If) => {
-                try!(self.run_prim_if());
+                try!(self.run_primitive_if());
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Supercombinator(ref sc_defn) => {
@@ -963,15 +1000,7 @@ fn setup_heap_node_access<F, T>(m: &mut Machine,
                           access_handler: F ) -> HeapAccessResult<T>
     where F: Fn(HeapNode) -> Result<T, MachineError> {
 
-    let (arg_addr, fn_addr) = match m.heap.get(&ap_addr) {
-        HeapNode::Application{arg_addr, fn_addr} => (arg_addr, fn_addr),
-        other @ _ => 
-            return Result::Err(format!("expected application at {}, \
-                                       found {:#?}",
-                                       ap_addr,
-                                       other))
-    };
-
+    let (arg_addr, fn_addr) = try!(unwrap_heap_node_to_ap(m.heap.get(&ap_addr))); 
     let arg = m.heap.get(&arg_addr);
     
     //setup indirection
