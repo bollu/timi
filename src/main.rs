@@ -383,7 +383,9 @@ fn get_prelude() -> CoreProgram {
                       twice f = compose f f;\
                       False = Pack{0, 0};\
                       True = Pack{1, 0};\
-                      fac n = if (n == 0) 1 (n * fac (n - 1))\
+                      Y f = f (Y f);\
+                      facrec f n = if (n == 0) 1 (n * f (n - 1));\
+                      fac n = (Y facrec) n\
                       ".to_string()).unwrap()
 }
 
@@ -1871,6 +1873,9 @@ fn main() {
             input.trim().to_string()
         };
 
+        if input == "" {
+            continue;
+        }
         if input == "exit".to_string() {
             break;
         }
@@ -1879,6 +1884,18 @@ fn main() {
         }
         else if input =="nostep" {
             pause_per_step = false;
+        }
+        else if input == "stack" {
+            panic!("unimplemented");
+        }
+        else if input == "dump" {
+            panic!("unimplemented");
+        }
+        else if input == "globals" {
+            panic!("unimplemented");
+        }
+        else if input == "heap" {
+            panic!("unimplemented");
         }
         else {
             let mut m : Machine = {
