@@ -1,3 +1,5 @@
+extern crate ansi_term;
+
 use std::fmt;
 
 pub type Addr = i32;
@@ -68,15 +70,27 @@ impl fmt::Debug for SupercombDefn {
         for arg in self.args.iter() {
             try!(write!(fmt, "{} ", &arg));
         }
-        try!(write!(fmt, "{{ {:#?} }}", self.body));
+
+        try!(write!(fmt, "= {{ {:#?} }}", self.body));
         Result::Ok(())
 
     }
 
 }
-
-
 //a core program is a list of supercombinator
 //definitions
 pub type CoreProgram = Vec<SupercombDefn>;
+
+
+
+use self::ansi_term::Colour::{Blue, Green, Cyan, Red, Black};
+
+pub fn format_addr_string(addr: &Addr)  -> String {
+    format!("{}{}", Green.paint("0x"), Green.underline().paint(format!("{:X}", addr)))
+}
+
+pub fn format_name_string(name: &str) -> String {
+    format!("{}", Cyan.paint(name))
+}
+
 

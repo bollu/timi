@@ -1,4 +1,4 @@
-
+extern crate ansi_term;
 use std::fmt;
 use std::collections::HashMap;
 use std::cmp; //for max
@@ -6,7 +6,6 @@ use std::cmp; //for max
 use ir::*;
 
 
-//*** parsing & tokensnisation ***
 
 #[derive(Clone)]
 pub enum ParseError {

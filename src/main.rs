@@ -8,13 +8,76 @@ mod machine;
 use frontend::*;
 use machine::*;
 
+
+fn run_step_interaction(iter_count: i32, m: &Machine, env: &Bindings) {
+    use std::io::Write;
+    loop {
+        print!("{}>> ", iter_count);
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        let _ = io::stdin().read_line(&mut input).unwrap();
+
+        input = input.trim().to_string();
+        if input == "" {
+            continue;
+        }
+        else if input == ":help" {
+            println!("*** HELP ***\n\
+                     :help - bring up help\n\
+                     :stack - show current stack
+                     ")
+       }
+        else if input == ":stack" {
+            print_machine_stack(m, env);
+        }
+        else if input == "s" || input == "step" {
+            return;
+        }
+        else {
+            println!("unrecognized: |{}|, type :help for help.", input)
+
+        }
+
+    }
+}
+fn run_machine(m: &mut Machine, pause_per_step: bool) {
+
+    let mut i = 0;
+    let mut env;
+    loop {
+        match m.step() {
+            Result::Ok(env_cur) => {
+                println!("*** ITERATION: {}", i);
+                i += 1;
+                env = env_cur;
+                print_machine(&m, &env);
+            },
+            Result::Err(e) => {
+                print!("step error: {}\n", e);
+                break;
+            }
+        };
+
+        if machine_is_final_state(&m) {
+            println!("=== FINAL: {:#?} ===", machine_get_final_val(&m));
+            break;
+        }
+
+
+        if pause_per_step {
+            run_step_interaction(i, m, &env);
+        }
+    }
+}
+
 fn main() {
     use std::io::Write;
-    let mut pause_per_step = true;
+    let mut pause_per_step = false;
     let mut m : Machine = Machine::new_minimal();
 
     loop {
-        print!("\n>>>");
+        print!(">");
         io::stdout().flush().unwrap();
 
         let input = {
@@ -41,26 +104,6 @@ fn main() {
             continue;
 
         }
-        else if input == "stack" {
-            panic!("unimplemented");
-            //continue;
-
-        }
-        else if input == "dump" {
-            panic!("unimplemented");
-            //continue;
-
-        }
-        else if input == "globals" {
-            panic!("unimplemented");
-            //continue;
-
-        }
-        else if input == "heap" {
-            panic!("unimplemented");
-            //continue;
-
-        }
 
 
         //someone is defining a binding
@@ -85,32 +128,7 @@ fn main() {
                 }
             };
             m.set_main_expr(&expr);
-
-            let mut i = 0;
-            loop {
-                match m.step() {
-                    Result::Ok(env) => {
-                        println!("*** ITERATION: {}", i);
-                        i += 1;
-                        print_machine(&m, &env);
-                    },
-                    Result::Err(e) => {
-                        print!("step error: {}\n", e);
-                        break;
-                    }
-                };
-
-                if machine_is_final_state(&m) {
-                    println!("=== FINAL: {:#?} ===", machine_get_final_val(&m));
-                    break;
-                }
-
-
-                if pause_per_step {
-                    let mut discard = String::new();
-                    let _ = io::stdin().read_line(&mut discard);
-                }
-            }
+            run_machine(&mut m, pause_per_step);
         }
     }
 }

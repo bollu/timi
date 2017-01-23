@@ -4,4 +4,9 @@ version = "0.1.0"
 authors = ["bollu <siddu.druid@gmail.com>"]
 
 [dependencies]
+ansi_term = "0.9"
 termion = "1.0"
+
+[dependencies.pad]
+git = "https://github.com/ogham/rust-pad.git"
+
