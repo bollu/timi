@@ -188,12 +188,12 @@ impl Stack {
         self.stack.push(addr)
     }
 
-    fn pop(&mut self) -> Addr {
-        self.stack.pop().expect("top of stack is empty")
+    fn pop(&mut self) -> Result<Addr, MachineError> {
+        self.stack.pop().ok_or("top of stack is empty".to_string())
     }
 
-    fn peek(&self) -> Addr {
-        self.stack.last().expect("top of stack is empty to peek").clone()
+    fn peek(&self) -> Result<Addr, MachineError> {
+        self.stack.last().cloned().ok_or("top of stack is empty to peek".to_string())
     }
 
     fn iter(&self) -> std::iter::Rev<std::slice::Iter<Addr>> {
@@ -439,7 +439,7 @@ impl Machine {
     //returns bindings of this run
     pub fn step(&mut self) -> Result<Bindings, MachineError>{
         //top of stack
-        let tos_addr : Addr = self.stack.peek();
+        let tos_addr : Addr = try!(self.stack.peek());
         let heap_val = self.heap.get(&tos_addr);
 
 
@@ -462,11 +462,11 @@ impl Machine {
         let stack_copy = self.stack.clone();
 
         //pop the primitive off
-        self.stack.pop();
+        try!(self.stack.pop());
 
         //we rewrite this addres in case of
         //a raw number
-        let neg_ap_addr = self.stack.peek();
+        let neg_ap_addr = try!(self.stack.peek());
 
         //Apply <negprim> <argument>
         //look at what argument is and dispatch work
@@ -503,12 +503,12 @@ impl Machine {
             //then do stuff
 
             //pop off operator
-            self.stack.pop();
+            try!(self.stack.pop());
 
 
             let left_value = {
                 //pop off left value
-                let left_ap_addr = self.stack.pop();
+                let left_ap_addr = try!(self.stack.pop());
                 match try!(setup_heap_node_access(self,
                                                   stack_copy.clone(),
                                                   left_ap_addr,
@@ -523,7 +523,7 @@ impl Machine {
             //we peek, since in the case where (+ a) b can be reduced,
             //we simply rewrite the node (+ a b) with the final value
             //(instead of creating a fresh node)
-            let binop_ap_addr = self.stack.peek();
+            let binop_ap_addr = try!(self.stack.peek());
             let right_value = 
                 match try!(setup_heap_node_access(self, 
                                                   stack_copy,
@@ -567,7 +567,7 @@ impl Machine {
                        arity: u32) -> Result<(), MachineError> {
 
         //pop out constructor
-        let mut rewrite_addr = self.stack.pop();
+        let mut rewrite_addr = try!(self.stack.pop());
 
         if self.stack.len() < arity as usize {
             return Result::Err(format!("expected to have \
@@ -590,7 +590,7 @@ impl Machine {
         //##bottom##
 
         for _ in 0..arity {
-            let arg_ap_addr = self.stack.pop();
+            let arg_ap_addr = try!(self.stack.pop());
             rewrite_addr = arg_ap_addr;
             let (_, arg_addr) = try!(unwrap_heap_node_to_ap(self.heap.get(&arg_ap_addr)));
             arg_addrs.push(arg_addr);
@@ -615,7 +615,7 @@ impl Machine {
         let stack_copy = self.stack.clone();
 
         //remove if condition
-        self.stack.pop();
+        try!(self.stack.pop());
 
         //## top of stack
         //if 
@@ -623,7 +623,7 @@ impl Machine {
         //if <cond> $ <then>
         //if <cond> <then> $ <else>
         //## bottom of stack
-        let if_ap_addr = self.stack.peek();
+        let if_ap_addr = try!(self.stack.peek());
         println!("if_ap_addr: {}", if_ap_addr);
 
         let then_ap_addr = try!(self.stack.clone()
@@ -654,9 +654,8 @@ impl Machine {
 
         println!("found cond: {}", cond);
 
-        self.stack.pop(); // if $ cond
-        self.stack.pop(); // if cond $ then
-        //self.stack.pop(); // if cond then $ else
+        try!(self.stack.pop()); // if $ cond
+        try!(self.stack.pop()); // if cond $ then
 
         if cond {
             let (_, then_addr) = try!(unwrap_heap_node_to_ap(self.heap.get(&then_ap_addr)));
@@ -687,7 +686,7 @@ impl Machine {
             &HeapNode::Indirection(ref addr) => {
                 //simply ignore an indirection during execution, and
                 //push the indirected value on the stack
-                self.stack.pop();
+                try!(self.stack.pop());
                 self.stack.push(*addr);
                 Result::Ok(self.globals.clone())
             }
@@ -902,7 +901,7 @@ fn change_addr_in_heap_node(old_addr: Addr,
 fn run_supercombinator(m: &mut Machine, sc_defn: &SupercombDefn) -> Result<Bindings, MachineError> {
 
     //pop the supercombinator
-    let sc_addr = m.stack.pop();
+    let sc_addr = try!(m.stack.pop());
 
     //the arguments are the stack
     //values below the supercombinator. There
@@ -910,7 +909,7 @@ fn run_supercombinator(m: &mut Machine, sc_defn: &SupercombDefn) -> Result<Bindi
     let arg_addrs = {
         let mut addrs = Vec::new();
         for _ in 0..sc_defn.args.len() {
-            addrs.push(m.stack.pop());
+            addrs.push(try!(m.stack.pop()));
         }
         addrs
     };
@@ -1072,7 +1071,7 @@ pub fn machine_is_final_state(m: &Machine) -> bool {
         false
     } else {
         let dump_empty = m.dump.len() == 0;
-        m.heap.get(&m.stack.peek()).is_data_node() &&
+        m.heap.get(&m.stack.peek().unwrap()).is_data_node() &&
             dump_empty
     }
 }
@@ -1093,13 +1092,13 @@ fn run_machine(program:  &str) -> Machine {
 #[test]
 fn test_skk3() {
     let m = run_machine("main = S K K 3");
-    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(3));
+    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(3));
 }
 
 #[test]
 fn test_negate_simple() {
     let m = run_machine("main = negate 1");
-    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(-1));
+    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(-1));
 }
 
 #[test]
