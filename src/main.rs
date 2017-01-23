@@ -155,7 +155,7 @@ impl fmt::Debug for HeapNode {
                 write!(fmt, "H-({} $ {})", fn_addr, arg_addr)
             }
             &HeapNode::Supercombinator(ref sc_defn) => {
-                write!(fmt, "H-{:#?}", sc_defn)
+                write!(fmt, "H-supcomb-{:#?}", sc_defn)
             },
             &HeapNode::Num(ref num)  => {
                 write!(fmt, "H-{}", num)
@@ -663,28 +663,35 @@ impl Machine {
         //if <cond> <then> $ <else>
         //## bottom of stack
         let if_ap_addr = self.stack.peek();
+        println!("if_ap_addr: {}", if_ap_addr);
 
-        let then_ap_addr = try!(self.stack
+        let then_ap_addr = try!(self.stack.clone()
                                 .iter()
                                 .nth(1)
                                 .ok_or("expected then application, was not found on stack".to_string())).clone();
+        println!("then_ap_addr: {}", then_ap_addr);
 
-        let else_ap_addr = try!(self.stack
+        let else_ap_addr = try!(self.stack.clone()
                             .iter()
                             .nth(2)
                             .ok_or("expected else application, was not found on stack".to_string())).clone();
+        println!("else_ap_addr: {}", else_ap_addr);
 
         let cond : bool = {
-            let (_, cond_addr) = try!(unwrap_heap_node_to_ap(self.heap.get(&if_ap_addr)));
+            println!("extracting cond addr...");
             match try!(setup_heap_node_access(self,
                                               stack_copy,
-                                              cond_addr,
+                                              if_ap_addr,
                                               heap_try_bool_access)) {
                 HeapAccessValue::Found(b) => b,
-                HeapAccessValue::SetupExecution => return Result::Ok(())
+                HeapAccessValue::SetupExecution => {
+                    println!("setting up execution...");
+                    return Result::Ok(())
+                }
             }
         };
         
+        println!("found cond: {}", cond);
         
         if cond {
             let (_, then_addr) = try!(unwrap_heap_node_to_ap(self.heap.get(&then_ap_addr)));
@@ -994,18 +1001,20 @@ type HeapAccessResult<T> = Result<HeapAccessValue<T>, MachineError>;
 //get a heap node of the kind that handler wants to get,
 //otherwise setup the heap so that unevaluated code
 //is evaluated to get something of this type
+//TODO: check if we can change semantics so it does not need to take the
+//application node as the parameter that's a little awkward
 fn setup_heap_node_access<F, T>(m: &mut Machine,
                           stack_to_dump: Stack,
                           ap_addr: Addr,
                           access_handler: F ) -> HeapAccessResult<T>
     where F: Fn(HeapNode) -> Result<T, MachineError> {
 
-    let (arg_addr, fn_addr) = try!(unwrap_heap_node_to_ap(m.heap.get(&ap_addr))); 
+    let (fn_addr, arg_addr) = try!(unwrap_heap_node_to_ap(m.heap.get(&ap_addr))); 
     let arg = m.heap.get(&arg_addr);
     
     //setup indirection
     if let HeapNode::Indirection(ind_addr) = arg {
-        //pop off the application and then create a new
+        //rewrite the indirection node directly with the application node
         //application that does into the indirection address
         m.heap.rewrite(&ap_addr, 
                        HeapNode::Application {
@@ -1776,6 +1785,12 @@ fn test_add_rhs_ap() {
 fn test_add_lhs_rhs_ap() {
     let m = run_machine("main = (negate 1) + (negate 3)");
     assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(-4));
+}
+
+#[test]
+fn test_complex_arith() {
+    let m = run_machine("main = 1 * 2 + 10 * 20 + 30 / 3");
+    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(212));
 }
 
 // main ---
