@@ -714,58 +714,61 @@ impl Machine {
                 self.stack.push(*addr);
                 Result::Ok(self.globals.clone())
             }
-            &HeapNode::Primitive(ref prim) => {
-
-                match prim {
-                    &MachinePrimOp::Negate => {
-                        try!(self.run_primitive_negate());
-                    }
-                    &MachinePrimOp::Add => {
-                        try!(self.run_num_binop(|x, y| HeapNode::Num(x + y)));
-                    }
-                    &MachinePrimOp::Sub => {
-                        try!(self.run_num_binop(|x, y| HeapNode::Num(x - y)));
-                    }
-                    &MachinePrimOp::Mul => {
-                        try!(self.run_num_binop(|x, y| HeapNode::Num(x * y)));
-                    }
-                    &MachinePrimOp::Div => {
-                        try!(self.run_num_binop(|x, y| HeapNode::Num(x / y)));
-                    }
-                    //construct a complex type
-                    &MachinePrimOp::Construct {tag, arity} => {
-                        try!(self.run_constructor(tag, arity));
-
-                    }
-                    //boolean ops
-                    &MachinePrimOp::G => {
-                        try!(self.run_num_binop(
-                                |x, y| rust_bool_to_machine_heap_node(x > y)));
-                    }
-                    &MachinePrimOp::GEQ => {
-                        try!(self.run_num_binop(
-                                |x, y| rust_bool_to_machine_heap_node(x >= y)));
-                    }
-                    &MachinePrimOp::L => {
-                        try!(self.run_num_binop(
-                                |x, y| rust_bool_to_machine_heap_node(x < y)));
-                    }
-                    &MachinePrimOp::LEQ => {
-                        try!(self.run_num_binop(
-                                |x, y| rust_bool_to_machine_heap_node(x <= y)));
-                    }
-                    &MachinePrimOp::EQ => {
-                        try!(self.run_num_binop(
-                                |x, y| rust_bool_to_machine_heap_node(x == y)));
-                    }
-                    &MachinePrimOp::NEQ => {
-                        try!(self.run_num_binop(
-                                |x, y| rust_bool_to_machine_heap_node(x != y)));
-                    }
-                };
-
+            &HeapNode::Primitive(MachinePrimOp::Negate) => {
+                try!(self.run_primitive_negate());
                 Result::Ok(self.globals.clone())
-
+            }
+            &HeapNode::Primitive(MachinePrimOp::Add) => {
+                try!(self.run_num_binop(|x, y| HeapNode::Num(x + y)));
+                Result::Ok(self.globals.clone())
+            }
+            &HeapNode::Primitive(MachinePrimOp::Sub) => {
+                try!(self.run_num_binop(|x, y| HeapNode::Num(x - y)));
+                Result::Ok(self.globals.clone())
+            }
+            &HeapNode::Primitive(MachinePrimOp::Mul) => {
+                try!(self.run_num_binop(|x, y| HeapNode::Num(x * y)));
+                Result::Ok(self.globals.clone())
+            }
+            &HeapNode::Primitive(MachinePrimOp::Div) => {
+                try!(self.run_num_binop(|x, y| HeapNode::Num(x / y)));
+                Result::Ok(self.globals.clone())
+            }
+            //construct a complex type
+            &HeapNode::Primitive(MachinePrimOp::Construct {tag, arity}) => {
+                try!(self.run_constructor(tag, arity));
+                Result::Ok(self.globals.clone())
+            }
+            //boolean ops
+            &HeapNode::Primitive(MachinePrimOp::G) => {
+                try!(self.run_num_binop(
+                        |x, y| rust_bool_to_machine_heap_node(x > y)));
+                Result::Ok(self.globals.clone())
+            }
+            &HeapNode::Primitive(MachinePrimOp::GEQ) => {
+                try!(self.run_num_binop(
+                        |x, y| rust_bool_to_machine_heap_node(x >= y)));
+                Result::Ok(self.globals.clone())
+            }
+            &HeapNode::Primitive(MachinePrimOp::L) => {
+                try!(self.run_num_binop(
+                        |x, y| rust_bool_to_machine_heap_node(x < y)));
+                Result::Ok(self.globals.clone())
+            }
+            &HeapNode::Primitive(MachinePrimOp::LEQ) => {
+                try!(self.run_num_binop(
+                        |x, y| rust_bool_to_machine_heap_node(x <= y)));
+                Result::Ok(self.globals.clone())
+            }
+            &HeapNode::Primitive(MachinePrimOp::EQ) => {
+                try!(self.run_num_binop(
+                        |x, y| rust_bool_to_machine_heap_node(x == y)));
+                Result::Ok(self.globals.clone())
+            }
+            &HeapNode::Primitive(MachinePrimOp::NEQ) => {
+                try!(self.run_num_binop(
+                        |x, y| rust_bool_to_machine_heap_node(x != y)));
+                Result::Ok(self.globals.clone())
             }
             &HeapNode::Supercombinator(ref sc_defn) => {
 
@@ -806,7 +809,7 @@ impl Machine {
                         }
                         else {
                             *arg_addrs.last()
-                            .expect(concat!("arguments has no final value ",
+                           .expect(concat!("arguments has no final value ",
                                             "even though the supercombinator ",
                                             "has >= 1 parameter"))
                         }
@@ -874,101 +877,98 @@ impl Machine {
             HeapNode::Supercombinator(_) => {}
             HeapNode::Num(_) => {},
         }
-
     }
 
     fn instantiate(&mut self, expr: CoreExpr, env: &Bindings) -> Result<Addr, MachineError> {
         match expr {
-           CoreExpr::Let(CoreLet{expr: let_rhs, bindings, is_rec}) => {
-            let mut let_env : Bindings = env.clone();
+            CoreExpr::Let(CoreLet{expr: let_rhs, bindings, is_rec}) => {
+                let mut let_env : Bindings = env.clone();
 
-            if is_rec {
-                //TODO: change this to zip() with range
+                if is_rec {
+                    //TODO: change this to zip() with range
 
-                let mut addr = -1;
-                //first create dummy indeces for all LHS
-                for &(ref bind_name, _) in bindings.iter()  {
-                    let_env.insert(bind_name.clone(), addr);
-                    addr -= 1;
-                }
-
-                let mut old_to_new_addr: HashMap<Addr, Addr> = HashMap::new();
-
-                //instantiate RHS, while storing legit
-                //LHS addresses
-                //TODO: cleanup, check if into_iter is sufficient
-                for &(ref bind_name, ref bind_expr) in bindings.iter() {
-                    let new_addr = try!(self.instantiate(*bind_expr.clone(), &let_env));
-
-                    let old_addr = try!(let_env
-                                        .get(bind_name)
-                                        .ok_or(format!("unable to find |{}| in env", bind_name)))
-                    .clone();
-
-                    old_to_new_addr.insert(old_addr, new_addr);
-
-                    //insert the "correct" address into the
-                    //let env
-                    let_env.insert(bind_name.clone(), new_addr);
-
-                }
-
-                for (old, new) in old_to_new_addr.iter() {
-                    for to_edit_addr in old_to_new_addr.values() {
-                        Machine::rebind_vars_to_env(*old,
-                                                    *new,
-                                                    *to_edit_addr,
-                                                    &mut self.heap);
+                    let mut addr = -1;
+                    //first create dummy indeces for all LHS
+                    for &(ref bind_name, _) in bindings.iter()  {
+                        let_env.insert(bind_name.clone(), addr);
+                        addr -= 1;
                     }
 
+                    let mut old_to_new_addr: HashMap<Addr, Addr> = HashMap::new();
+
+                    //instantiate RHS, while storing legit
+                    //LHS addresses
+                    //TODO: cleanup, check if into_iter is sufficient
+                    for &(ref bind_name, ref bind_expr) in bindings.iter() {
+                        let new_addr = try!(self.instantiate(*bind_expr.clone(), &let_env));
+
+                        let old_addr = try!(let_env
+                                            .get(bind_name)
+                                            .ok_or(format!("unable to find |{}| in env", bind_name)))
+                            .clone();
+
+                        old_to_new_addr.insert(old_addr, new_addr);
+
+                        //insert the "correct" address into the
+                        //let env
+                        let_env.insert(bind_name.clone(), new_addr);
+
+                    }
+
+                    for (old, new) in old_to_new_addr.iter() {
+                        for to_edit_addr in old_to_new_addr.values() {
+                            Machine::rebind_vars_to_env(*old,
+                                                        *new,
+                                                        *to_edit_addr,
+                                                        &mut self.heap);
+                        }
+
+                    }
+
+                    print!("letrec env:\n {:#?}", let_env);
+                    self.instantiate(*let_rhs, &let_env)
+
+                }
+                else {
+                    for (bind_name, bind_expr) in bindings.into_iter() {
+                        let addr = try!(self.instantiate(*bind_expr, &let_env));
+                        let_env.insert(bind_name.clone(), addr);
+                    }
+                    self.instantiate(*let_rhs, &let_env)
+
                 }
 
-                print!("letrec env:\n {:#?}", let_env);
-                self.instantiate(*let_rhs, &let_env)
+            }
+            CoreExpr::Num(x) => Result::Ok(self.heap.alloc(HeapNode::Num(x))),
+            CoreExpr::Application(fn_expr, arg_expr) => {
+                let fn_addr = try!(self.instantiate(*fn_expr, env));
+                let arg_addr = try!(self.instantiate(*arg_expr, env));
+
+                Result::Ok(self.heap.alloc(HeapNode::Application {
+                    fn_addr: fn_addr,
+                    arg_addr: arg_addr
+                }))
 
             }
-            else {
-                for (bind_name, bind_expr) in bindings.into_iter() {
-                    let addr = try!(self.instantiate(*bind_expr, &let_env));
-                    let_env.insert(bind_name.clone(), addr);
+            CoreExpr::Variable(vname) => {
+                match env.get(&vname) {
+                    Some(addr) => Result::Ok(*addr),
+                    None => Result::Err(format!("unable to find variable in heap: |{}|", vname))
                 }
-                self.instantiate(*let_rhs, &let_env)
 
             }
+            CoreExpr::Pack{tag, arity} => {
+                let prim_for_pack = 
+                    HeapNode::Primitive(MachinePrimOp::Construct{
+                        tag: tag,
+                        arity: arity
+                    });
 
+                Result::Ok(self.heap.alloc(prim_for_pack))
+
+            } 
         }
-        CoreExpr::Num(x) => Result::Ok(self.heap.alloc(HeapNode::Num(x))),
-        CoreExpr::Application(fn_expr, arg_expr) => {
-            let fn_addr = try!(self.instantiate(*fn_expr, env));
-            let arg_addr = try!(self.instantiate(*arg_expr, env));
-
-            Result::Ok(self.heap.alloc(HeapNode::Application {
-                fn_addr: fn_addr,
-                arg_addr: arg_addr
-            }))
-
-        }
-        CoreExpr::Variable(vname) => {
-            match env.get(&vname) {
-                Some(addr) => Result::Ok(*addr),
-                None => Result::Err(format!("unable to find variable in heap: |{}|", vname))
-            }
-
-        }
-        CoreExpr::Pack{tag, arity} => {
-            let prim_for_pack = 
-                HeapNode::Primitive(MachinePrimOp::Construct{
-                                        tag: tag,
-                                        arity: arity
-                                    });
-
-            Result::Ok(self.heap.alloc(prim_for_pack))
-        
-        } 
-                                     
     }
-}
-
 }
 
 
