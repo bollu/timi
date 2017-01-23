@@ -91,6 +91,7 @@ fn main() {
                 match m.step() {
                     Result::Ok(env) => {
                         println!("*** ITERATION: {}", i);
+                        i += 1;
                         print_machine(&m, &env);
                     },
                     Result::Err(e) => {
@@ -99,17 +100,17 @@ fn main() {
                     }
                 };
 
-                if machine_is_final_state(&m) { break; }
+                if machine_is_final_state(&m) {
+                    println!("=== FINAL: {:#?} ===", machine_get_final_val(&m));
+                    break;
+                }
 
-                i += 1;
 
                 if pause_per_step {
                     let mut discard = String::new();
                     let _ = io::stdin().read_line(&mut discard);
                 }
             }
-
-            print!("=== MACHINE ENDED ===");
         }
     }
 }

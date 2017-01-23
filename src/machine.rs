@@ -42,7 +42,7 @@ impl fmt::Debug for MachinePrimOp {
             &MachinePrimOp::NEQ => write!(fmt, "!="),
             &MachinePrimOp::If => write!(fmt, "if"),
             &MachinePrimOp::Construct{ref tag, ref arity} => {
-                write!(fmt, "Construct-tag:{:#?} | arity: {}", tag, arity)
+                write!(fmt, "Construct(tag:{:#?} | arity: {})", tag, arity)
             }
         }
     }
@@ -123,9 +123,9 @@ impl HeapNode {
 
 fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
     match node {
-        &HeapNode::Indirection(addr) => format!("indirection: {}", addr),
+        &HeapNode::Indirection(addr) => format!("indirection({})", addr),
         &HeapNode::Num(num) => format!("{}", num),
-        &HeapNode::Primitive(ref primop) => format!("prim-{:#?}", primop),
+        &HeapNode::Primitive(ref primop) => format!("prim({:#?})", primop),
         &HeapNode::Application{ref fn_addr, ref arg_addr} =>
             format!("({} $ {})",
             format_heap_node(m, env, &m.heap.get(fn_addr)),
@@ -1074,6 +1074,11 @@ pub fn machine_is_final_state(m: &Machine) -> bool {
         m.heap.get(&m.stack.peek().unwrap()).is_data_node() &&
             dump_empty
     }
+}
+
+pub fn machine_get_final_val(m: &Machine) -> HeapNode {
+    assert!(machine_is_final_state(m));
+    m.heap.get(&m.stack.peek().unwrap())
 }
 
 #[cfg(test)]
