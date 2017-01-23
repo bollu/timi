@@ -40,21 +40,21 @@ impl fmt::Debug for CoreExpr {
             &CoreExpr::Variable(ref name) => write!(fmt, "{}", name),
             &CoreExpr::Num(ref num) => write!(fmt, "n_{}", num),
             &CoreExpr::Application(ref e1, ref e2) =>
-            write!(fmt, "({:#?} $ {:#?})", *e1, *e2),
-            &CoreExpr::Let(CoreLet{ref is_rec, ref bindings, ref expr}) => {
-                if *is_rec {
-                    try!(write!(fmt, "letrec"));
-                } else {
-                    try!(write!(fmt, "let"));
+                write!(fmt, "({:#?} $ {:#?})", *e1, *e2),
+                &CoreExpr::Let(CoreLet{ref is_rec, ref bindings, ref expr}) => {
+                    if *is_rec {
+                        try!(write!(fmt, "letrec"));
+                    } else {
+                        try!(write!(fmt, "let"));
+                    }
+                    try!(write!(fmt, " {{\n"));
+                    for &(ref name, ref expr) in bindings {
+                        try!(write!(fmt, "{} = {:#?}\n", name, expr));
+                    }
+                    try!(write!(fmt, "in\n"));
+                    try!(write!(fmt, "{:#?}", expr));
+                    write!(fmt, "}}")
                 }
-                try!(write!(fmt, " {{\n"));
-                for &(ref name, ref expr) in bindings {
-                    try!(write!(fmt, "{} = {:#?}\n", name, expr));
-                }
-                try!(write!(fmt, "in\n"));
-                try!(write!(fmt, "{:#?}", expr));
-                write!(fmt, "}}")
-            }
             &CoreExpr::Pack{ref tag, ref arity} => {
                 write!(fmt, "Pack(tag: {} arity: {})", tag, arity)
             }
@@ -113,19 +113,19 @@ enum MachinePrimOp {
 impl fmt::Debug for MachinePrimOp {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
-           &MachinePrimOp::Negate => write!(fmt, "Negate"),
-           &MachinePrimOp::Add => write!(fmt, "+"),
-           &MachinePrimOp::Sub => write!(fmt, "-"),
-           &MachinePrimOp::Mul => write!(fmt, "*"),
-           &MachinePrimOp::Div => write!(fmt, "/"),
-           &MachinePrimOp::G => write!(fmt, ">"),
-           &MachinePrimOp::L => write!(fmt, "<"),
-           &MachinePrimOp::GEQ => write!(fmt, ">="),
-           &MachinePrimOp::LEQ => write!(fmt, "<="),
-           &MachinePrimOp::EQ => write!(fmt, "=="),
-           &MachinePrimOp::NEQ => write!(fmt, "!="),
-           &MachinePrimOp::If => write!(fmt, "if"),
-           &MachinePrimOp::Construct{tag, arity} => {
+            &MachinePrimOp::Negate => write!(fmt, "Negate"),
+            &MachinePrimOp::Add => write!(fmt, "+"),
+            &MachinePrimOp::Sub => write!(fmt, "-"),
+            &MachinePrimOp::Mul => write!(fmt, "*"),
+            &MachinePrimOp::Div => write!(fmt, "/"),
+            &MachinePrimOp::G => write!(fmt, ">"),
+            &MachinePrimOp::L => write!(fmt, "<"),
+            &MachinePrimOp::GEQ => write!(fmt, ">="),
+            &MachinePrimOp::LEQ => write!(fmt, "<="),
+            &MachinePrimOp::EQ => write!(fmt, "=="),
+            &MachinePrimOp::NEQ => write!(fmt, "!="),
+            &MachinePrimOp::If => write!(fmt, "if"),
+            &MachinePrimOp::Construct{tag, arity} => {
                 write!(fmt, "Construct-tag:{} | arity: {}", tag, arity)
             }
         }
@@ -188,8 +188,8 @@ fn unwrap_heap_node_to_ap(node: HeapNode) -> Result<(Addr, Addr), MachineError> 
     match node {
         HeapNode::Application{fn_addr, arg_addr} => 
             Result::Ok((fn_addr, arg_addr)),
-        other @ _ => Result::Err(format!(
-                "expected application node, found: {:#?}", other))
+            other @ _ => Result::Err(format!(
+                    "expected application node, found: {:#?}", other))
     }
 }
 
@@ -226,8 +226,8 @@ impl Stack {
         self.stack.last().expect("top of stack is empty to peek").clone()
     }
 
-    fn iter(&self) -> std::slice::Iter<Addr> {
-        self.stack.iter()
+    fn iter(&self) -> std::iter::Rev<std::slice::Iter<Addr>> {
+        self.stack.iter().rev()
     }
 
 }
@@ -275,15 +275,15 @@ impl Heap {
 
     fn get(&self, addr: &Addr) -> HeapNode {
         self.heap
-        .get(&addr)
-        .cloned()
-        .expect(&format!("expected heap node at addess: {}", addr))
+            .get(&addr)
+            .cloned()
+            .expect(&format!("expected heap node at addess: {}", addr))
     }
 
     fn rewrite(&mut self, addr: &Addr, node: HeapNode) {
         assert!(self.heap.contains_key(addr),
-                "asked to rewrite (address: {}) with (node: {:#?}) which does not exist on heap",
-                addr, node);
+        "asked to rewrite (address: {}) with (node: {:#?}) which does not exist on heap",
+        addr, node);
         self.heap.insert(*addr, node);
     }
 
@@ -314,20 +314,20 @@ fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
         &HeapNode::Num(num) => format!("{}", num),
         &HeapNode::Primitive(ref primop) => format!("prim-{:#?}", primop),
         &HeapNode::Application{ref fn_addr, ref arg_addr} =>
-        format!("({} $ {})",
-                format_heap_node(m, env, &m.heap.get(fn_addr)),
-                format_heap_node(m, env, &m.heap.get(arg_addr))),
-        &HeapNode::Supercombinator(ref sc_defn) =>  {
-            let mut sc_str = String::new();
-            write!(&mut sc_str, "{}", sc_defn.name).unwrap();
-            sc_str
-        }
+            format!("({} $ {})",
+            format_heap_node(m, env, &m.heap.get(fn_addr)),
+            format_heap_node(m, env, &m.heap.get(arg_addr))),
+            &HeapNode::Supercombinator(ref sc_defn) =>  {
+                let mut sc_str = String::new();
+                write!(&mut sc_str, "{}", sc_defn.name).unwrap();
+                sc_str
+            }
         &HeapNode::Data{ref tag, ref component_addrs} => {
             let mut data_str = String::new();
-            data_str  += &format!("data-{}", tag);
+            data_str  += &format!("data-tag:{}-components:{:#?}", tag, component_addrs);
             for c in component_addrs.iter() {
                 data_str += 
-                       &format!("{}", format_heap_node(m, env, &m.heap.get(c)))
+                    &format!("{}", format_heap_node(m, env, &m.heap.get(c)))
             }
             data_str
         }
@@ -339,7 +339,7 @@ fn print_machine(m: &Machine, env: &Bindings) {
     fn print_stack(m: &Machine, env: &Bindings, s: &Stack) {
         print!( "stack:\n");
         print!( "## top ##\n");
-        for addr in s.iter().rev() {
+        for addr in s.iter() {
             print!("heap[{}] :  {}\n",
                    *addr,
                    format_heap_node(m,
@@ -349,20 +349,24 @@ fn print_machine(m: &Machine, env: &Bindings) {
         print!( "## bottom ##\n");
     };
 
+    println!("===START MACHINE===");
     print_stack(m, env, &m.stack);
-
-    print!("*** heap: ***\n");
-    print!("{:#?}", m.heap);
 
     print!("*** dump: ***\n");
     for stack in  m.dump.iter().rev() {
         print_stack(m, env, stack);
     }
+    /*
+       print!("*** heap: ***\n");
+       print!("{:#?}", m.heap);
+       */
+
+    println!("===END MACHINE===");
 }
 
 fn bool_to_heap_node(b: bool) -> HeapNode {
     if b {
-       HeapNode::Primitive(MachinePrimOp::Construct{tag: 1, arity: 0})
+        HeapNode::Primitive(MachinePrimOp::Construct{tag: 1, arity: 0})
     }
     else {
         HeapNode::Primitive(MachinePrimOp::Construct{tag: 0, arity: 0})
@@ -468,8 +472,8 @@ impl Machine {
         //data node, so pop it back.
         if heap_val.is_data_node() && self.dump.len() > 0 {
             self.stack = self.dump
-            .pop()
-            .expect("dump should have at least 1 element");
+                .pop()
+                .expect("dump should have at least 1 element");
             Result::Ok(self.globals.clone())
         } else {
             self.run_step(&heap_val)
@@ -483,41 +487,41 @@ impl Machine {
                                 globals: &Bindings) -> 
         Result<Bindings, MachineError> {
 
-        assert!(stack_args.len() == sc_defn.args.len());
+            assert!(stack_args.len() == sc_defn.args.len());
 
-        let mut env = globals.clone();
+            let mut env = globals.clone();
 
-        /*
-         * let f a b c = <body>
-         *
-         * if a function call of the form f x y z was made,
-         * the stack will look like
-         * ---top---
-         * f
-         * f x
-         * f x y
-         * f x y z
-         * --------
-         *
-         * the "f" will be popped beforehand (that is part of the contract
-         * of calling make_supercombinator_env)
-         *
-         *
-         * So, we go down the stack, removing function applications, and
-         * binding the RHS to the function parameter names.
-         *
-         */
-         for (arg_name, application_addr) in
-         sc_defn.args.iter().zip(stack_args.iter()) {
+            /*
+             * let f a b c = <body>
+             *
+             * if a function call of the form f x y z was made,
+             * the stack will look like
+             * ---top---
+             * f
+             * f x
+             * f x y
+             * f x y z
+             * --------
+             *
+             * the "f" will be popped beforehand (that is part of the contract
+             * of calling make_supercombinator_env)
+             *
+             *
+             * So, we go down the stack, removing function applications, and
+             * binding the RHS to the function parameter names.
+             *
+             */
+            for (arg_name, application_addr) in
+                sc_defn.args.iter().zip(stack_args.iter()) {
 
-            let application = heap.get(application_addr);
-            let (_, param_addr) = try!(unwrap_heap_node_to_ap(application));
-            env.insert(arg_name.clone(), param_addr);
+                    let application = heap.get(application_addr);
+                    let (_, param_addr) = try!(unwrap_heap_node_to_ap(application));
+                    env.insert(arg_name.clone(), param_addr);
 
+                }
+            Result::Ok(env)
         }
-        Result::Ok(env)
-    }
-    
+
 
     fn run_primitive_negate(&mut self) -> Result<(), MachineError> {
         //we need a copy of the stack to push into the dump
@@ -537,9 +541,9 @@ impl Machine {
                                               stack_copy, 
                                               neg_ap_addr,
                                               heap_try_num_access)) {
-            HeapAccessValue::Found(val) => val,
-            HeapAccessValue::SetupExecution => return Result::Ok(())
-        };
+                HeapAccessValue::Found(val) => val,
+                HeapAccessValue::SetupExecution => return Result::Ok(())
+            };
 
         self.heap.rewrite(&neg_ap_addr, HeapNode::Num(-to_negate_val));
         Result::Ok(())
@@ -549,69 +553,85 @@ impl Machine {
     //extractor should return an error if a node cannot have data
     //extracted from. It should return None
     fn run_primitive_num_binop<F>(&mut self, handler: F) -> Result<(), MachineError> 
-    where F: Fn(i32, i32) -> HeapNode {
+        where F: Fn(i32, i32) -> HeapNode {
 
-        let stack_copy = self.stack.clone();
+            let stack_copy = self.stack.clone();
 
-        //stack will be like
+            //stack will be like
 
-        //top--v
-        //+
-        //(+ a)
-        //(+ a) b
-        //bottom-^
+            //top--v
+            //+
+            //(+ a)
+            //(+ a) b
+            //bottom-^
 
-        //fully eval a, b
-        //then do stuff
+            //fully eval a, b
+            //then do stuff
 
-        //pop off operator
-        self.stack.pop();
+            //pop off operator
+            self.stack.pop();
 
 
-        let left_value = {
-            //pop off left value
-            let left_ap_addr = self.stack.pop();
-            match try!(setup_heap_node_access(self,
-                                                   stack_copy.clone(),
-                                                    left_ap_addr,
-                                                    heap_try_num_access)) {
-                HeapAccessValue::Found(val) => val,
-                HeapAccessValue::SetupExecution => return Result::Ok(())
-            }
-        };
-
-        //do the same process for right argument
-        //peek (+ a) b
-        //we peek, since in the case where (+ a) b can be reduced,
-        //we simply rewrite the node (+ a b) with the final value
-        //(instead of creating a fresh node)
-        let binop_ap_addr = self.stack.peek();
-        let right_value = 
-            match try!(setup_heap_node_access(self, 
-                                              stack_copy,
-                                              binop_ap_addr,
-                                              heap_try_num_access)) {
-                HeapAccessValue::Found(val) => val,
-                HeapAccessValue::SetupExecution => return Result::Ok(())
+            let left_value = {
+                //pop off left value
+                let left_ap_addr = self.stack.pop();
+                match try!(setup_heap_node_access(self,
+                                                  stack_copy.clone(),
+                                                  left_ap_addr,
+                                                  heap_try_num_access)) {
+                    HeapAccessValue::Found(val) => val,
+                    HeapAccessValue::SetupExecution => return Result::Ok(())
+                }
             };
 
-        self.heap.rewrite(&binop_ap_addr, handler(left_value,
-                                                  right_value));
+            //do the same process for right argument
+            //peek (+ a) b
+            //we peek, since in the case where (+ a) b can be reduced,
+            //we simply rewrite the node (+ a b) with the final value
+            //(instead of creating a fresh node)
+            let binop_ap_addr = self.stack.peek();
+            let right_value = 
+                match try!(setup_heap_node_access(self, 
+                                                  stack_copy,
+                                                  binop_ap_addr,
+                                                  heap_try_num_access)) {
+                    HeapAccessValue::Found(val) => val,
+                    HeapAccessValue::SetupExecution => return Result::Ok(())
+                };
 
-        Result::Ok(())
-    } //close fn
+            self.heap.rewrite(&binop_ap_addr, handler(left_value,
+                                                      right_value));
+
+            Result::Ok(())
+        } //close fn
 
     //TODO: find out what happens when constructor of arity 0 is
     //called
+    //NOTE: rewrite_addr will point to the address of the full constructor call.
+    //That way, when we dump the stack and use it to run something more complex,
+    //it will point to the correct location
+    //eg:
+    //I
+    //stack: if (<complex expr) 1 2
+    //dump: []
+    //II
+    //stack: <complex_expr>
+    //dump: if (<complex_expr> 1 2
+    //III
+    //stack:
+    //..
+    //...
+    //<complex_expr> <- rewrite rule
+    //dump: if (<complex_expr> 1 2
+    //IV
+    //stack: <rewritten complex expr>
+    //dump: if <rewritten complex expr> 1 2
     fn run_constructor(&mut self,
                        tag: DataTag,
                        arity: u32) -> Result<(), MachineError> {
 
         //pop out constructor
-        //TODO: check if this is legit: before, I used to pop this.
-        //Now, I'm rewriting this address. This _should_ work, but I'm
-        //not 100% sure
-        self.stack.pop();
+        let mut rewrite_addr = self.stack.pop();
 
         if self.stack.len() < arity as usize {
             return Result::Err(format!("expected to have \
@@ -621,9 +641,9 @@ impl Machine {
                                        tag,
                                        self.stack.len()));
         }
-    
+
         let mut arg_addrs : Vec<Addr> = Vec::new();
-        
+
         //This will be rewritten with the data
         //since the fn call would have been something like:
         //##top##
@@ -634,22 +654,27 @@ impl Machine {
         //##bottom##
 
         for _ in 0..arity {
-            let (_, arg_addr) = try!(unwrap_heap_node_to_ap(self.heap.get(&self.stack.pop())));
+            let arg_ap_addr = self.stack.pop();
+            rewrite_addr = arg_ap_addr;
+            let (_, arg_addr) = try!(unwrap_heap_node_to_ap(self.heap.get(&arg_ap_addr)));
             arg_addrs.push(arg_addr);
+
         };
 
-        let new_alloc_addr = self.heap.alloc(HeapNode::Data{
+        self.heap.rewrite(&rewrite_addr, 
+                          HeapNode::Data{
                               component_addrs: arg_addrs,
-                               tag: tag
+                              tag: tag
                           });
-        self.stack.push(new_alloc_addr);
+        //TODO: check if this is correct?
+        self.stack.push(rewrite_addr);
         Result::Ok(())
     }
     fn dump_stack(&mut self, stack: Stack) {
         self.dump.push(stack);
         self.stack = Stack::new();
     }
-    
+
     fn run_primitive_if(&mut self) -> Result<(), MachineError> {
         let stack_copy = self.stack.clone();
 
@@ -672,9 +697,9 @@ impl Machine {
         println!("then_ap_addr: {}", then_ap_addr);
 
         let else_ap_addr = try!(self.stack.clone()
-                            .iter()
-                            .nth(2)
-                            .ok_or("expected else application, was not found on stack".to_string())).clone();
+                                .iter()
+                                .nth(2)
+                                .ok_or("expected else application, was not found on stack".to_string())).clone();
         println!("else_ap_addr: {}", else_ap_addr);
 
         let cond : bool = {
@@ -690,18 +715,22 @@ impl Machine {
                 }
             }
         };
-        
+
         println!("found cond: {}", cond);
-        
+
+        self.stack.pop(); // if $ cond
+        self.stack.pop(); // if cond $ then
+        //self.stack.pop(); // if cond then $ else
+
         if cond {
             let (_, then_addr) = try!(unwrap_heap_node_to_ap(self.heap.get(&then_ap_addr)));
             let then_node = self.heap.get(&then_addr);
-            self.heap.rewrite(&if_ap_addr, then_node);
+            self.heap.rewrite(&else_ap_addr, then_node);
         }
         else {
             let (_, else_addr) = try!(unwrap_heap_node_to_ap(self.heap.get(&else_ap_addr)));
             let else_node = self.heap.get(&else_addr);
-            self.heap.rewrite(&if_ap_addr, else_node);
+            self.heap.rewrite(&else_ap_addr, else_node);
         }
         Result::Ok(())
     }
@@ -712,12 +741,12 @@ impl Machine {
         match heap_val {
             &HeapNode::Num(n) =>
                 return Result::Err(format!("number applied as a function: {}", n)),
-            &HeapNode::Data{..} => panic!("cannot run data node, unimplemented"),
-            &HeapNode::Application{fn_addr, ..} => {
-                //push function address over the function
-                self.stack.push(fn_addr);
-                Result::Ok(self.globals.clone())
-            }
+                &HeapNode::Data{..} => panic!("cannot run data node, unimplemented"),
+                &HeapNode::Application{fn_addr, ..} => {
+                    //push function address over the function
+                    self.stack.push(fn_addr);
+                    Result::Ok(self.globals.clone())
+                }
             &HeapNode::Indirection(ref addr) => {
                 //simply ignore an indirection during execution, and
                 //push the indirected value on the stack
@@ -802,9 +831,9 @@ impl Machine {
                 };
 
                 let env = try!(Machine::make_supercombinator_env(&sc_defn,
-                                                            &self.heap,
-                                                            &arg_addrs,
-                                                            &self.globals));
+                                                                 &self.heap,
+                                                                 &arg_addrs,
+                                                                 &self.globals));
 
                 let new_alloc_addr = try!(self.instantiate(sc_defn.body.clone(), &env));
 
@@ -824,9 +853,9 @@ impl Machine {
                         }
                         else {
                             *arg_addrs.last()
-                           .expect(concat!("arguments has no final value ",
-                                            "even though the supercombinator ",
-                                            "has >= 1 parameter"))
+                                .expect(concat!("arguments has no final value ",
+                                                "even though the supercombinator ",
+                                                "has >= 1 parameter"))
                         }
                     };
                     self.heap.rewrite(&full_call_addr, HeapNode::Indirection(new_alloc_addr));
@@ -877,18 +906,18 @@ impl Machine {
 
                 heap.rewrite(&edit_addr,
                              HeapNode::Application{
-                               fn_addr: new_fn_addr,
-                               arg_addr: new_arg_addr
-                           });
+                                 fn_addr: new_fn_addr,
+                                 arg_addr: new_arg_addr
+                             });
 
             },
             HeapNode::Indirection(ref addr) =>
-            Machine::rebind_vars_to_env(old_addr,
-                                        new_addr,
-                                        *addr,
-                                        &mut heap),
+                Machine::rebind_vars_to_env(old_addr,
+                                            new_addr,
+                                            *addr,
+                                            &mut heap),
 
-            HeapNode::Primitive(_) => {}
+                                            HeapNode::Primitive(_) => {}
             HeapNode::Supercombinator(_) => {}
             HeapNode::Num(_) => {},
         }
@@ -1004,23 +1033,23 @@ type HeapAccessResult<T> = Result<HeapAccessValue<T>, MachineError>;
 //TODO: check if we can change semantics so it does not need to take the
 //application node as the parameter that's a little awkward
 fn setup_heap_node_access<F, T>(m: &mut Machine,
-                          stack_to_dump: Stack,
-                          ap_addr: Addr,
-                          access_handler: F ) -> HeapAccessResult<T>
-    where F: Fn(HeapNode) -> Result<T, MachineError> {
+                                stack_to_dump: Stack,
+                                ap_addr: Addr,
+                                access_handler: F ) -> HeapAccessResult<T>
+where F: Fn(HeapNode) -> Result<T, MachineError> {
 
     let (fn_addr, arg_addr) = try!(unwrap_heap_node_to_ap(m.heap.get(&ap_addr))); 
     let arg = m.heap.get(&arg_addr);
-    
+
     //setup indirection
     if let HeapNode::Indirection(ind_addr) = arg {
         //rewrite the indirection node directly with the application node
         //application that does into the indirection address
         m.heap.rewrite(&ap_addr, 
                        HeapNode::Application {
-                          fn_addr: fn_addr,
-                          arg_addr: ind_addr
-                      });
+                           fn_addr: fn_addr,
+                           arg_addr: ind_addr
+                       });
         return Result::Ok(HeapAccessValue::SetupExecution)
     };
 
@@ -1067,7 +1096,7 @@ fn machine_is_final_state(m: &Machine) -> bool {
     } else {
         let dump_empty = m.dump.len() == 0;
         m.heap.get(&m.stack.peek()).is_data_node() &&
-        dump_empty
+            dump_empty
     }
 
 }
@@ -1088,14 +1117,14 @@ enum ParseError {
 impl fmt::Debug for ParseError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
-           &ParseError::NoTokens => {
-               write!(fmt, "no more tokens found")
-           }
-           &ParseError::UnexpectedToken{ref expected, ref found} => {
-               write!(fmt, "expected one of {:#?}, \
+            &ParseError::NoTokens => {
+                write!(fmt, "no more tokens found")
+            }
+            &ParseError::UnexpectedToken{ref expected, ref found} => {
+                write!(fmt, "expected one of {:#?}, \
                             found: |{:#?}|", expected, found)
-           }
-           &ParseError::ErrorStr(ref s) => write!(fmt, "{}",&s)
+            }
+            &ParseError::ErrorStr(ref s) => write!(fmt, "{}",&s)
         }
     }
 }
@@ -1153,10 +1182,10 @@ impl ParserCursor {
 
     fn peek(&self) -> CoreToken {
         match self.tokens.get(self.pos)
-        .cloned() {
-            Some(tok) => tok,
-            None => CoreToken::PeekNoToken
-        }
+            .cloned() {
+                Some(tok) => tok,
+                None => CoreToken::PeekNoToken
+            }
 
     }
 
@@ -1207,14 +1236,14 @@ fn is_char_symbol(c: char) -> bool {
 }
 
 fn tokenize_symbol(char_arr: Vec<char>, i: usize) -> 
-    Result<(CoreToken, usize), ParseError> {
-    
+Result<(CoreToken, usize), ParseError> {
+
 
     let c = match char_arr.get(i) {
         Some(c) => c.clone(),
         None => return 
             Result::Err(ParseError::ErrorStr(format!(
-                    "unable to get value out of: {} from: {:?}", i, char_arr)))
+                        "unable to get value out of: {} from: {:?}", i, char_arr)))
     };
     assert!(is_char_symbol(c),
     format!("{} is not charcter, digit or symbol", c));
@@ -1288,8 +1317,8 @@ fn tokenize_symbol(char_arr: Vec<char>, i: usize) ->
     };
 
     Result::Ok((longest_op, longest_taken_length))
-    //tokens.push(longest_op);
-    //i += longest_taken_length;
+        //tokens.push(longest_op);
+        //i += longest_taken_length;
 }
 
 
@@ -1367,9 +1396,9 @@ fn tokenize(program: String) -> Result<Vec<CoreToken>, ParseError> {
 }
 
 fn parse_string_as_int(num_str: String) -> Result<i32, ParseError> {
-        i32::from_str_radix(&num_str, 10)
-            .map_err(|_| ParseError::ErrorStr(format!(
-                "unable to parse {} as int", num_str)))
+    i32::from_str_radix(&num_str, 10)
+        .map_err(|_| ParseError::ErrorStr(format!(
+                    "unable to parse {} as int", num_str)))
 }
 
 
@@ -1388,7 +1417,7 @@ fn is_token_atomic_expr_start(t: CoreToken) -> bool {
 
 //atomic := <num> | <ident> | "(" <expr> ")"
 fn parse_atomic_expr(mut c: &mut ParserCursor) ->
-    Result<CoreExpr, ParseError> {
+Result<CoreExpr, ParseError> {
     match c.peek() {
         CoreToken::Integer(num_str) => {
             try!(c.consume());
@@ -1408,8 +1437,8 @@ fn parse_atomic_expr(mut c: &mut ParserCursor) ->
         },
         other @ _ =>
             return Result::Err(ParseError::ErrorStr(format!(
-                "expected integer, identifier or (<expr>), found {:#?}",
-                other)))
+                        "expected integer, identifier or (<expr>), found {:#?}",
+                        other)))
     }
 
 }
@@ -1439,7 +1468,7 @@ fn parse_let(mut c: &mut ParserCursor) -> Result<CoreLet, ParseError> {
         CoreToken::Let => try!(c.consume()),
         CoreToken::LetRec => try!(c.consume()),
         _ => return Result::Err(ParseError::ErrorStr(format!(
-                "expected let or letrec, found {:#?}", c.peek())))
+                    "expected let or letrec, found {:#?}", c.peek())))
     };
 
     let mut bindings : Vec<(Name, Box<CoreExpr>)> = Vec::new();
@@ -1469,10 +1498,10 @@ fn parse_let(mut c: &mut ParserCursor) -> Result<CoreLet, ParseError> {
         CoreToken::Let => false,
         CoreToken::LetRec => true,
         other @ _ =>
-        return Result::Err(ParseError::UnexpectedToken {
-            expected: vec![CoreToken::Let, CoreToken::LetRec],
-            found: other.clone()
-        })
+            return Result::Err(ParseError::UnexpectedToken {
+                expected: vec![CoreToken::Let, CoreToken::LetRec],
+                found: other.clone()
+            })
     };
 
     Result::Ok(CoreLet {
@@ -1494,7 +1523,7 @@ fn parse_pack(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
         }
         other @ _ => 
             return Result::Err(ParseError::ErrorStr(format!(
-                    "expected integer tag, found {:#?}", other)))
+                        "expected integer tag, found {:#?}", other)))
     };
 
     try!(c.expect(CoreToken::Comma));
@@ -1506,7 +1535,7 @@ fn parse_pack(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
         }
         other @ _ => 
             return Result::Err(ParseError::ErrorStr(format!(
-                    "expected integer arity, found {:#?}", other)))
+                        "expected integer arity, found {:#?}", other)))
     };
 
     try!(c.expect(CoreToken::CloseCurlyBracket));
@@ -1518,7 +1547,7 @@ fn parse_pack(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
 
 //aexpr := variable | number | Pack "{" num "," num "}" | "(" expr ")" 
 fn parse_application(mut cursor: &mut ParserCursor) -> 
-    Result<CoreExpr, ParseError> {
+Result<CoreExpr, ParseError> {
     let mut application_vec : Vec<CoreExpr> = Vec::new();
     loop {
         let c = cursor.peek();
@@ -1589,10 +1618,10 @@ fn parse_binop_at_precedence(mut cursor: &mut ParserCursor,
     };
 
     let ap_inner =
-    CoreExpr::Application(Box::new(operator_variable), Box::new(lhs_expr));
+        CoreExpr::Application(Box::new(operator_variable), Box::new(lhs_expr));
 
     Result::Ok(CoreExpr::Application(Box::new(ap_inner),
-                                     Box::new(rhs_expr)))
+    Box::new(rhs_expr)))
 
 
 }
@@ -1604,7 +1633,7 @@ fn parse_mul_div(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> 
                               [(CoreToken::Mul, CoreExpr::Variable("*".to_string())),
                               (CoreToken::Div, CoreExpr::Variable("/".to_string()))
                               ].iter().cloned().collect())
-    //parse_application(&mut cursor)
+        //parse_application(&mut cursor)
 }
 
 
@@ -1683,19 +1712,19 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
             let mut sc_args = Vec::new();
             //<args>* = <expr>
             while cursor.peek() != CoreToken::Assignment &&
-            cursor.peek() != CoreToken::PeekNoToken {
-                if let CoreToken::Ident(sc_arg) = cursor.peek() {
-                    try!(cursor.consume());
-                    sc_args.push(sc_arg);
+                cursor.peek() != CoreToken::PeekNoToken {
+                    if let CoreToken::Ident(sc_arg) = cursor.peek() {
+                        try!(cursor.consume());
+                        sc_args.push(sc_arg);
 
-                }
-                else {
-                    return Result::Err(ParseError::ErrorStr(format!(
-                            "super combinator argument expected, \
+                    }
+                    else {
+                        return Result::Err(ParseError::ErrorStr(format!(
+                                    "super combinator argument expected, \
                             {:#?} encountered",
-                           cursor.consume())));
+                            cursor.consume())));
+                    }
                 }
-            }
             //take the equals
             try!(cursor.expect(CoreToken::Assignment));
             let sc_body = try!(parse_expr(&mut cursor));
@@ -1717,15 +1746,15 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
                 },
                 other @ _ => {
                     return Result::Err(ParseError::ErrorStr(format!(
-                            "expected either ; or EOF, found {:#?}",
-                                    other)));
-                        }
+                                "expected either ; or EOF, found {:#?}",
+                                other)));
+                }
             }
 
         } else {
             return Result::Err(ParseError::ErrorStr(format!(
-                "super combinator name expected, {:#?} encountered",
-                   cursor.consume())));
+                        "super combinator name expected, {:#?} encountered",
+                        cursor.consume())));
         }
     }
     Result::Ok(program)
@@ -1735,7 +1764,7 @@ fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
 #[cfg(test)]
 fn run_machine(program:  &str) -> Machine {
     let main = string_to_program(program.to_string())
-    .unwrap();
+        .unwrap();
     let mut m = Machine::new(main);
     while !machine_is_final_state(&m) {
         let _ = m.step();
@@ -1837,7 +1866,7 @@ fn main() {
             loop {
                 match m.step() {
                     Result::Ok(env) => {
-                        print!("*** ITERATION: {} \n***", i);
+                        println!("*** ITERATION: {}", i);
                         print_machine(&m, &env);
                     },
                     Result::Err(e) => {
@@ -1847,7 +1876,7 @@ fn main() {
                 };
 
                 i += 1;
-                
+
                 if machine_is_final_state(&m) { break; }
 
                 if pause_per_step {
