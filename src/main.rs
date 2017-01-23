@@ -1822,6 +1822,37 @@ fn test_complex_arith() {
     assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(212));
 }
 
+#[test]
+fn test_if_true_branch() {
+    let m = run_machine("main = if True 1 2");
+    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(1));
+}
+
+
+#[test]
+fn test_if_false_branch() {
+    let m = run_machine("main = if False 1 2");
+    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(2));
+}
+
+#[test]
+fn test_if_cond_complex_branch() {
+    let mut m = run_machine("main = if (1 < 2) 1 2");
+    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(1));
+    
+    m = run_machine("main = if (1 > 2) 1 2");
+    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(2));
+}
+
+#[test]
+fn test_if_cond_complex_result() {
+    let mut m = run_machine("main = if True (100 + 100) (100 - 100)");
+    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(200));
+    
+    m = run_machine("main = if False (100 + 100) (100 - 100)");
+    assert!(m.heap.get(&m.stack.peek()) == HeapNode::Num(0));
+}
+
 // main ---
 fn main() {
     use std::io::Write;
