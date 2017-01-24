@@ -181,7 +181,7 @@ fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
         &HeapNode::Num(num) => format!("{}", num),
         &HeapNode::Primitive(ref primop) => format!("{:#?}", primop),
         &HeapNode::Application{ref fn_addr, ref arg_addr} =>
-            format!("{} {}",
+            format!("({} {})",
             format_heap_node(m, env, &m.heap.get(fn_addr)),
             format_heap_node(m, env, &m.heap.get(arg_addr))),
         &HeapNode::Supercombinator(ref sc_defn) =>  {

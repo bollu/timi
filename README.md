@@ -1,13 +1,20 @@
 TIMmy (Template Instantiation Machine)
 ===============
 
-An implementation of a template instantiation machine  from the excellent book
-[Implementing Functional languages, a tutorial](http://research.microsoft.com/en-us/um/people/simonpj/Papers/pj-lester-book/)
+A visual implementation of a template instantiation machine, to understand how a 
+lazily evaluated functional programming language works
 
-It is written in Rust because I like the fact that
-- Rust is a systems language, so it'll hopefully be faster than an implementation in Haskell
-- Rust is strict, which means that implementing certain things like letrec needs some more elbow grease
-- Rust has nice libraries (and a slick `stdlib`) that let you write safe and pretty code
+[Example run of template instantiation machine Run](http://i.imgur.com/PKNywHC.png)
+
+# Table of Contents
+- [Quickstart](#quickstart)
+- [Roadmap](#roadmap)
+- [Design Decisions](#design-decisions)
+- [Stuff I Learnt](#stuff-I-learnt)
+- [References](#references)
+
+## Quickstart
+
 
 ## Roadmap
 - [x] Mark 1 (template instantiation)
@@ -28,13 +35,17 @@ It is written in Rust because I like the fact that
 
 ### Design Decisions
 
+`TIM` is written in Rust because:
+- Rust is a systems language, so it'll hopefully be faster than an implementation in Haskell
+- Rust is strict, which means that implementing certain things like letrec needs some more elbow grease
+- Rust has nice libraries (and a slick `stdlib`) that let you write safe and pretty code
+
 #### Why does `peek()` return `PeekNoToken` instead of error?
 in a lot of the parsing, we usually check if the next token is something.
 if it isn't, we just return immediately.
 
 Semantically, it makes sense, since you're just "peeking" at the next token,
 so we can signal that there is no token by returning a sentinel token.
-
 
 `try!(cursor.peek())` causes us to lose control flow and propogate
 an __error__ if we peek at something that doesn't exist, which is the wrong
@@ -54,3 +65,7 @@ the difference is that the second slice is being taken inside `tokenize`, which 
 (which is needed for `[..]` (since `[..]` means that you know the number of elements in it).
 
 So, when it is outside, you need to take a slice `&[..]`, so that `Sized` information is not needed
+
+### References
+- [Implementing Functional languages, a tutorial](http://research.microsoft.com/en-us/um/people/simonpj/Papers/pj-lester-book/)
+- A huge thanks to [quchen's `STGi` implementation](https://github.com/quchen/stgi) whose style I straight up copied for this machine.
