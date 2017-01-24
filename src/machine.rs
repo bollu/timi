@@ -181,14 +181,28 @@ fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
         &HeapNode::Num(num) => format!("{}", num),
         &HeapNode::Primitive(ref primop) => format!("{:#?}", primop),
         &HeapNode::Application{ref fn_addr, ref arg_addr} =>
-            format!("({} $ {})",
+            format!("{} {}",
             format_heap_node(m, env, &m.heap.get(fn_addr)),
             format_heap_node(m, env, &m.heap.get(arg_addr))),
-            &HeapNode::Supercombinator(ref sc_defn) =>  {
-                let mut sc_str = String::new();
-                write!(&mut sc_str, "{}", sc_defn.name).unwrap();
-                sc_str
-            }
+        &HeapNode::Supercombinator(ref sc_defn) =>  {
+            let mut sc_str = String::new();
+            write!(&mut sc_str, "{}", sc_defn.name).unwrap();
+            sc_str
+        }
+        &HeapNode::Data{tag: DataTag::TagTrue, ..} => {
+            format!("True")
+        }
+        &HeapNode::Data{tag: DataTag::TagFalse, ..} => {
+            format!("False")
+        }
+        &HeapNode::Data{tag: DataTag::TagPair, ref component_addrs} => {
+            let left = m.heap.get(component_addrs.get(0).unwrap());
+            let right = m.heap.get(component_addrs.get(1).unwrap());
+            format!("({}, {})",
+                    format_heap_node(m, env, &left),
+                    format_heap_node(m, env, &right))
+        }
+
         &HeapNode::Data{ref tag, ref component_addrs} => {
             let mut data_str = String::new();
             data_str  += &format!("data-(tag:{:#?}",
@@ -339,6 +353,10 @@ impl Heap {
         (node: {:#?}) which does not exist on heap",
         addr, node);
         self.heap.insert(*addr, node);
+    }
+
+    fn len(&self) -> usize {
+        self.heap.len()
     }
 
 }
@@ -1388,10 +1406,10 @@ pub fn print_machine(m: &Machine, env: &Bindings) {
         }
     }
 
-    println!("{}", Blue.paint("Stack"));
+    println!("{}", Blue.paint(format!("Stack - {} items", m.stack.len())));
 
     print_stack(m, env, &m.stack);
-    println!("{}", Blue.paint("Heap"));
+    println!("{}", Blue.paint(format!("Heap - {} items", m.heap.len())));
 
     if addr_collection.len() == 0 {
         println!("  Empty");
@@ -1536,8 +1554,8 @@ fn test_case_pair_simple_right_access() {
 
 #[test]
 fn test_case_pair_complex_access_function() {
-    let m = run_machine("main = casePair (MkPair 3 4) (compose K fac)");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(6));
+    let m = run_machine("main = casePair (MkPair 7 4) (compose K fac)");
+    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(5040));
 }
 
 #[test]

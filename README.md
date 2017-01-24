@@ -7,15 +7,23 @@ An implementation of a template instantiation machine  from the excellent book
 It is written in Rust because I like the fact that
 - Rust is a systems language, so it'll hopefully be faster than an implementation in Haskell
 - Rust is strict, which means that implementing certain things like letrec needs some more elbow grease
-- Rust is well thought out as a language
+- Rust has nice libraries (and a slick `stdlib`) that let you write safe and pretty code
 
 ## Roadmap
 - [x] Mark 1 (template instantiation)
 - [x] let, letrec
 - [x] template updates (do not stupidly instatiate each time)
 - [x] numeric functions
-- [ ] Booleans (WIP)
-- [ ] nicer interface for stepping through execution
+- [x] Booleans
+- [x] Tuples
+- [x] Lists
+- [x] nicer interface for stepping through execution
+
+- [ ] write higher order functions in Rust to help with implementing structured data
+- [ ] Rust docs for Supercombinator
+- [ ] Rust docs for Update
+- [ ] Rust docs for Primitive
+
 
 
 ### Design Decisions
