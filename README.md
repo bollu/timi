@@ -4,7 +4,7 @@ TIMmy (Template Instantiation Machine)
 A visual implementation of a template instantiation machine, to understand how a 
 lazily evaluated functional programming language works
 
-[Example run of template instantiation machine Run](http://i.imgur.com/PKNywHC.png)
+![Example run of template instantiation machine Run](http://i.imgur.com/PKNywHC.png)
 
 # Table of Contents
 - [Quickstart](#quickstart)
