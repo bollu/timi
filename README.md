@@ -1,8 +1,11 @@
-TIMmy (Template Instantiation Machine)
-===============
+[![Build Status](https://travis-ci.org/bollu/TIM-template-instantiation.svg?branch=master)](https://travis-ci.org/bollu/TIM-template-instantiation)
 
-A visual implementation of a template instantiation machine, to understand how a 
-lazily evaluated functional programming language works
+TIMmy - Template Instantiation Machine Interpreter 
+======================================
+
+A visual, user-friendly implementation of a template instantiation machine to understand how a 
+lazily evaluated functional programming language is evaluated.
+
 
 ![Example run of template instantiation machine Run](http://i.imgur.com/PKNywHC.png)
 
