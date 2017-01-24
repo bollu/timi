@@ -69,6 +69,8 @@ pub enum DataTag {
     TagFalse = 0,
     TagTrue = 1,
     TagPair = 2,
+    TagListNil = 3,
+    TagListCons = 4,
 }
 
 fn raw_tag_to_data_tag (raw_tag: u32) -> Result<DataTag, MachineError> {
@@ -76,6 +78,8 @@ fn raw_tag_to_data_tag (raw_tag: u32) -> Result<DataTag, MachineError> {
         0 => Result::Ok(DataTag::TagFalse),
         1 => Result::Ok(DataTag::TagTrue),
         2 => Result::Ok(DataTag::TagPair),
+        3 => Result::Ok(DataTag::TagListNil),
+        4 => Result::Ok(DataTag::TagListCons),
         other @ _ => Result::Err(format!(
                                          "expected False(0), \
                                          True(1), or Pair(2). \
@@ -99,12 +103,13 @@ pub enum HeapNode {
 }
 
 
+fn format_heap_tag(s: &str) -> String {
+    format!("{}", Style::new().bold().paint(s))
+}
+
 impl fmt::Debug for HeapNode {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
 
-        fn format_heap_tag(s: &str) -> String {
-            format!("{}", Style::new().bold().paint(s))
-        }
 
         match self {
             &HeapNode::Application{ref fn_addr, ref arg_addr} => {
@@ -134,7 +139,7 @@ impl fmt::Debug for HeapNode {
                        primop)
             },
             &HeapNode::Data{ref tag, ref component_addrs} => {
-                try!(write!(fmt, "{}(tag: {:#?} ",
+                try!(write!(fmt, "{}(tag: {:#?}",
                             format_heap_tag("H-Data"),
                             tag));
 
@@ -142,7 +147,7 @@ impl fmt::Debug for HeapNode {
                     try!(write!(fmt, ")"))
                 }
                 else {
-                    try!(write!(fmt, "data: "));
+                    try!(write!(fmt, " | data: "));
                     for addr in component_addrs.iter() {
                         try!(write!(fmt, "{} ", format_addr_string(addr)));
                     }
@@ -168,7 +173,7 @@ impl HeapNode {
 
 fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
     match node {
-        &HeapNode::Indirection(addr) => format!("indirection({})", addr),
+        &HeapNode::Indirection(addr) => format!("indirection({})", format_heap_node(m, env, &m.heap.get(&addr))),
         &HeapNode::Num(num) => format!("{}", num),
         &HeapNode::Primitive(ref primop) => format!("{:#?}", primop),
         &HeapNode::Application{ref fn_addr, ref arg_addr} =>
@@ -182,13 +187,13 @@ fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
         }
         &HeapNode::Data{ref tag, ref component_addrs} => {
             let mut data_str = String::new();
-            data_str  += &format!("data-(tag:{:#?} ",
+            data_str  += &format!("data-(tag:{:#?}",
                                   tag);
 
             if component_addrs.len() == 0 {
                 data_str += ")";
             }else{
-                data_str += "data:";
+                data_str += " | data:";
                 for c in component_addrs.iter() {
                     data_str += 
                     &format!(" {}", format_heap_node(m, env, &m.heap.get(c)))
@@ -375,6 +380,8 @@ fn get_prelude() -> CoreProgram {
                                 False = Pack{0, 0};\
                                 True = Pack{1, 0};\
                                 MkPair = Pack{2, 2};\
+                                Nil = Pack{3, 0};\
+                                Cons = Pack{4, 2};\
                                 Y f = f (Y f);\
                                 facrec f n = if (n == 0) 1 (n * f (n - 1));\
                                 fac n = (Y facrec) n\
