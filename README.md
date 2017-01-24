@@ -1,8 +1,10 @@
 [![Build Status](https://travis-ci.org/bollu/TIM-template-instantiation.svg?branch=master)](https://travis-ci.org/bollu/TIM-template-instantiation)
 [![Coverage Status](https://coveralls.io/repos/github/bollu/TIM-template-instantiation/badge.svg?branch=master)](https://coveralls.io/github/bollu/TIM-template-instantiation?branch=master)
+[![Crates.io](https://img.shields.io/crates/v/timi.svg)](https://crates.io/crates/timi)
+
 
 TIMi - Template Instantiation Machine Interpreter 
-======================================
+=================================================
 
 A visual, user-friendly implementation of a template instantiation machine to understand how a 
 lazily evaluated functional programming language is evaluated.
