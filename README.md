@@ -8,6 +8,8 @@ lazily evaluated functional programming language works
 
 # Table of Contents
 - [Quickstart](#quickstart)
+- [Language Introduction](#language-introduction)
+- [Runtime](#runtime)
 - [Roadmap](#roadmap)
 - [Design Decisions](#design-decisions)
 - [Stuff I Learnt](#stuff-I-learnt)
@@ -15,6 +17,10 @@ lazily evaluated functional programming language works
 
 ## Quickstart
 
+## Language Introduction
+
+
+## Runtime
 
 ## Roadmap
 - [x] Mark 1 (template instantiation)
@@ -25,11 +31,10 @@ lazily evaluated functional programming language works
 - [x] Tuples
 - [x] Lists
 - [x] nicer interface for stepping through execution
-
 - [ ] write higher order functions in Rust to help with implementing structured data
-- [ ] Rust docs for Supercombinator
-- [ ] Rust docs for Update
-- [ ] Rust docs for Primitive
+- [ ] Rust docs for `Supercombinator`
+- [ ] Rust docs for `Update`
+- [ ] Rust docs for `Primitive`
 
 
 
@@ -40,7 +45,7 @@ lazily evaluated functional programming language works
 - Rust is strict, which means that implementing certain things like letrec needs some more elbow grease
 - Rust has nice libraries (and a slick `stdlib`) that let you write safe and pretty code
 
-#### Why does `peek()` return `PeekNoToken` instead of error?
+##### Why does `peek()` return `PeekNoToken` instead of error?
 in a lot of the parsing, we usually check if the next token is something.
 if it isn't, we just return immediately.
 
@@ -55,7 +60,7 @@ return errors since you're asking the cursor to go one token ahead.
 
 ### Stuff I learnt
 
-### Difference between `[..]` and `&[..]`
+##### Difference between `[..]` and `&[..]`
 
 [Slice without ref](https://github.com/bollu/TIM-template-instantiation/blob/master/src/main.rs#L1124)
 versus
