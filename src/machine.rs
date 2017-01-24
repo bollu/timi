@@ -37,7 +37,9 @@ pub enum MachinePrimOp {
         arity: u32
     },
     If,
-    CasePair
+    CasePair,
+    CaseList,
+    Undef,
 }
 
 impl fmt::Debug for MachinePrimOp {
@@ -56,6 +58,8 @@ impl fmt::Debug for MachinePrimOp {
             &MachinePrimOp::NEQ => write!(fmt, "!="),
             &MachinePrimOp::If => write!(fmt, "if"),
             &MachinePrimOp::CasePair => write!(fmt, "casePair"),
+            &MachinePrimOp::CaseList => write!(fmt, "caseList"),
+            &MachinePrimOp::Undef => write!(fmt, "undef"),
             &MachinePrimOp::Construct{ref tag, ref arity} => {
                 write!(fmt, "Construct(tag:{:#?} | arity: {})", tag, arity)
             }
@@ -81,7 +85,7 @@ fn raw_tag_to_data_tag (raw_tag: u32) -> Result<DataTag, MachineError> {
         3 => Result::Ok(DataTag::TagListNil),
         4 => Result::Ok(DataTag::TagListCons),
         other @ _ => Result::Err(format!(
-                                         "expected False(0), \
+                "expected False(0), \
                                          True(1), or Pair(2). \
                                          found: {}",
                                          other))
@@ -130,13 +134,13 @@ impl fmt::Debug for HeapNode {
             }
             &HeapNode::Indirection(ref addr)  => {
                 write!(fmt, "{}({})",
-                       format_heap_tag("H-Indirection"),
-                       format_addr_string(addr))
+                format_heap_tag("H-Indirection"),
+                format_addr_string(addr))
             }
             &HeapNode::Primitive(ref primop)  => {
                 write!(fmt, "{}({:#?})",
-                       format_heap_tag("H-Primitive"),
-                       primop)
+                format_heap_tag("H-Primitive"),
+                primop)
             },
             &HeapNode::Data{ref tag, ref component_addrs} => {
                 try!(write!(fmt, "{}(tag: {:#?}",
@@ -177,14 +181,14 @@ fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
         &HeapNode::Num(num) => format!("{}", num),
         &HeapNode::Primitive(ref primop) => format!("{:#?}", primop),
         &HeapNode::Application{ref fn_addr, ref arg_addr} =>
-        format!("({} $ {})",
-                format_heap_node(m, env, &m.heap.get(fn_addr)),
-                format_heap_node(m, env, &m.heap.get(arg_addr))),
-        &HeapNode::Supercombinator(ref sc_defn) =>  {
-            let mut sc_str = String::new();
-            write!(&mut sc_str, "{}", sc_defn.name).unwrap();
-            sc_str
-        }
+            format!("({} $ {})",
+            format_heap_node(m, env, &m.heap.get(fn_addr)),
+            format_heap_node(m, env, &m.heap.get(arg_addr))),
+            &HeapNode::Supercombinator(ref sc_defn) =>  {
+                let mut sc_str = String::new();
+                write!(&mut sc_str, "{}", sc_defn.name).unwrap();
+                sc_str
+            }
         &HeapNode::Data{ref tag, ref component_addrs} => {
             let mut data_str = String::new();
             data_str  += &format!("data-(tag:{:#?}",
@@ -196,7 +200,7 @@ fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
                 data_str += " | data:";
                 for c in component_addrs.iter() {
                     data_str += 
-                    &format!(" {}", format_heap_node(m, env, &m.heap.get(c)))
+                        &format!(" {}", format_heap_node(m, env, &m.heap.get(c)))
                 }
                 data_str += ")";
             } 
@@ -225,8 +229,8 @@ fn collect_addrs_from_heap_node(heap: &Heap, node: &HeapNode, collection: &mut H
             }
         }
         &HeapNode::Supercombinator(_) | 
-        &HeapNode::Primitive(..) |
-        &HeapNode::Num(_) => {}
+            &HeapNode::Primitive(..) |
+            &HeapNode::Num(_) => {}
     };
 }
 
@@ -235,9 +239,9 @@ Result<(Addr, Addr), MachineError> {
 
     match node {
         HeapNode::Application{fn_addr, arg_addr} => 
-        Result::Ok((fn_addr, arg_addr)),
-        other @ _ => Result::Err(format!(
-                                         "expected application node, \
+            Result::Ok((fn_addr, arg_addr)),
+            other @ _ => Result::Err(format!(
+                    "expected application node, \
                                          found: {:#?}", other))
     }
 }
@@ -324,16 +328,16 @@ impl Heap {
 
     fn get(&self, addr: &Addr) -> HeapNode {
         self.heap
-        .get(&addr)
-        .cloned()
-        .expect(&format!("expected heap node at addess: {}", addr))
+            .get(&addr)
+            .cloned()
+            .expect(&format!("expected heap node at addess: {}", addr))
     }
 
     fn rewrite(&mut self, addr: &Addr, node: HeapNode) {
         assert!(self.heap.contains_key(addr),
-                "asked to rewrite (address: {}) with \
-                (node: {:#?}) which does not exist on heap",
-                addr, node);
+        "asked to rewrite (address: {}) with \
+        (node: {:#?}) which does not exist on heap",
+        addr, node);
         self.heap.insert(*addr, node);
     }
 
@@ -401,41 +405,43 @@ fn get_primitives() -> Vec<(Name, MachinePrimOp)> {
     ("==".to_string(), MachinePrimOp::EQ),
     ("negate".to_string(), MachinePrimOp::Negate),
     ("if".to_string(), MachinePrimOp::If),
-    ("casePair".to_string(), MachinePrimOp::CasePair)
+    ("casePair".to_string(), MachinePrimOp::CasePair),
+    ("caseList".to_string(), MachinePrimOp::CaseList),
+    ("undef".to_string(), MachinePrimOp::Undef)
     ].iter().cloned().collect()
 }
 
 
 fn heap_build_initial(sc_defs: CoreProgram, prims: Vec<(Name, MachinePrimOp)>) 
--> (Heap, Bindings) {
+    -> (Heap, Bindings) {
 
-    let mut heap = Heap::new();
-    let mut globals = HashMap::new();
+        let mut heap = Heap::new();
+        let mut globals = HashMap::new();
 
-    for sc_def in sc_defs.iter() {
-        //create a heap node for the Supercombinator definition
-        //and insert it
-        let node = HeapNode::Supercombinator(sc_def.clone());
-        let addr = heap.alloc(node);
+        for sc_def in sc_defs.iter() {
+            //create a heap node for the Supercombinator definition
+            //and insert it
+            let node = HeapNode::Supercombinator(sc_def.clone());
+            let addr = heap.alloc(node);
 
-        //insert it into the globals, binding the name to the
-        //heap address
-        globals.insert(sc_def.name.clone(), addr);
+            //insert it into the globals, binding the name to the
+            //heap address
+            globals.insert(sc_def.name.clone(), addr);
+        }
+
+        for (name, prim_op) in prims.into_iter() {
+            let addr = heap.alloc(HeapNode::Primitive(prim_op));
+            globals.insert(name, addr);
+        }
+
+        (heap, globals)
     }
-
-    for (name, prim_op) in prims.into_iter() {
-        let addr = heap.alloc(HeapNode::Primitive(prim_op));
-        globals.insert(name, addr);
-    }
-
-    (heap, globals)
-}
 
 // *** INTERPRETER ***
 impl Machine {
     pub fn new_minimal() -> Machine {
         let (initial_heap, globals) = heap_build_initial(get_prelude(),
-                                                         get_primitives());
+        get_primitives());
 
         Machine {
             dump: Vec::new(),
@@ -500,8 +506,8 @@ impl Machine {
         //data node, so pop it back.
         if heap_val.is_data_node() && self.dump.len() > 0 {
             self.stack = self.dump
-            .pop()
-            .expect("dump should have at least 1 element");
+                .pop()
+                .expect("dump should have at least 1 element");
             Result::Ok(self.globals.clone())
         } else {
             self.heap_node_step(&heap_val)
@@ -509,7 +515,8 @@ impl Machine {
     }
 
 
-
+    //TODO: rewrite code to follow the new style of peeking all of them
+    //and then popping off all of them
     fn run_primitive_negate(&mut self) -> Result<(), MachineError> {
         //we need a copy of the stack to push into the dump
         let stack_copy = self.stack.clone();
@@ -524,13 +531,13 @@ impl Machine {
         //Apply <negprim> <argument>
         //look at what argument is and dispatch work
         let to_negate_val = 
-        match try!(setup_heap_node_access(self,
-                                          stack_copy, 
-                                          neg_ap_addr,
-                                          heap_try_num_access)) {
-            HeapAccessValue::Found(val) => val,
-            HeapAccessValue::SetupExecution => return Result::Ok(())
-        };
+            match try!(setup_heap_node_access(self,
+                                              stack_copy, 
+                                              neg_ap_addr,
+                                              heap_try_num_access)) {
+                HeapAccessValue::Found(val) => val,
+                HeapAccessValue::SetupExecution => return Result::Ok(())
+            };
 
         self.heap.rewrite(&neg_ap_addr, HeapNode::Num(-to_negate_val));
         Result::Ok(())
@@ -539,58 +546,50 @@ impl Machine {
 
     //extractor should return an error if a node cannot have data
     //extracted from. It should return None
+    //0: +
+    //1: (+ a)
+    //2: (+ a) b
+    //bottom-^
     fn run_primitive_num_binop<F>(&mut self, handler: F) -> Result<(), MachineError> 
-    where F: Fn(i32, i32) -> HeapNode {
+        where F: Fn(i32, i32) -> HeapNode {
 
-        let stack_copy = self.stack.clone();
+            let stack_copy = self.stack.clone();
 
-        //stack will be like
-
-        //top--v
-        //+
-        //(+ a)
-        //(+ a) b
-        //bottom-^
-
-        //fully eval a, b
-        //then do stuff
-
-        //pop off operator
-        try!(self.stack.pop());
+            try!(self.stack.pop());
 
 
-        let left_value = {
-            //pop off left value
-            let left_ap_addr = try!(self.stack.pop());
-            match try!(setup_heap_node_access(self,
-                                              stack_copy.clone(),
-                                              left_ap_addr,
-                                              heap_try_num_access)) {
-                HeapAccessValue::Found(val) => val,
-                HeapAccessValue::SetupExecution => return Result::Ok(())
-            }
-        };
+            let left_value = {
+                //pop off left value
+                let left_ap_addr = try!(self.stack.pop());
+                match try!(setup_heap_node_access(self,
+                                                  stack_copy.clone(),
+                                                  left_ap_addr,
+                                                  heap_try_num_access)) {
+                    HeapAccessValue::Found(val) => val,
+                    HeapAccessValue::SetupExecution => return Result::Ok(())
+                }
+            };
 
-        //do the same process for right argument
-        //peek (+ a) b
-        //we peek, since in the case where (+ a) b can be reduced,
-        //we simply rewrite the node (+ a b) with the final value
-        //(instead of creating a fresh node)
-        let binop_ap_addr = try!(self.stack.peek());
-        let right_value = 
-        match try!(setup_heap_node_access(self, 
-                                          stack_copy,
-                                          binop_ap_addr,
-                                          heap_try_num_access)) {
-            HeapAccessValue::Found(val) => val,
-            HeapAccessValue::SetupExecution => return Result::Ok(())
-        };
+            //do the same process for right argument
+            //peek (+ a) b
+            //we peek, since in the case where (+ a) b can be reduced,
+            //we simply rewrite the node (+ a b) with the final value
+            //(instead of creating a fresh node)
+            let binop_ap_addr = try!(self.stack.peek());
+            let right_value = 
+                match try!(setup_heap_node_access(self, 
+                                                  stack_copy,
+                                                  binop_ap_addr,
+                                                  heap_try_num_access)) {
+                    HeapAccessValue::Found(val) => val,
+                    HeapAccessValue::SetupExecution => return Result::Ok(())
+                };
 
-        self.heap.rewrite(&binop_ap_addr, handler(left_value,
-                                                  right_value));
+            self.heap.rewrite(&binop_ap_addr, handler(left_value,
+                                                      right_value));
 
-        Result::Ok(())
-    }
+            Result::Ok(())
+        }
 
     //NOTE: rewrite_addr will point to the address of the full constructor call.
     //That way, when we dump the stack and use it to run something more complex,
@@ -655,37 +654,40 @@ impl Machine {
                               component_addrs: arg_addrs,
                               tag: tag.clone()
                           });
-        //TODO: check if this is correct?
+
         self.stack.push(rewrite_addr);
         Result::Ok(())
     }
+
     fn dump_stack(&mut self, stack: Stack) {
         self.dump.push(stack);
         self.stack = Stack::new();
     }
 
 
-    //if 
-    //if $ <cond> <- if_ap_addr
-    //if <cond> $ <then>
-    //if <cond> <then> $ <else>
+    //0: if 
+    //1: if $ <cond> <- if_ap_addr
+    //2: if <cond> $ <then>
+    //3: if <cond> <then> $ <else>
     fn run_primitive_if(&mut self) -> Result<(), MachineError> {
         let stack_copy = self.stack.clone();
 
-        //remove if condition
-        try!(self.stack.pop());
 
-  
-        let if_ap_addr = try!(self.stack.peek());
+
+        let if_ap_addr = try!(self.stack
+                              .iter()
+                              .nth(1)
+                              .cloned()
+                              .ok_or("expected condition, was not found on stack"));
 
         let then_ap_addr = try!(self.stack
                                 .iter()
-                                .nth(1)
+                                .nth(2)
                                 .ok_or("expected then application, was not found on stack".to_string())).clone();
 
         let else_ap_addr = try!(self.stack
                                 .iter()
-                                .nth(2)
+                                .nth(3)
                                 .ok_or("expected else application, was not found on stack".to_string())).clone();
 
         let cond : bool = {
@@ -701,9 +703,10 @@ impl Machine {
             }
         };
 
-
-        try!(self.stack.pop()); // if $ cond
-        try!(self.stack.pop()); // if cond $ then
+        //pop off 0:, 1:, 2:
+        try!(self.stack.pop()); 
+        try!(self.stack.pop()); 
+        try!(self.stack.pop()); 
 
         if cond {
             let (_, then_addr) = try!(unwrap_heap_node_to_ap(self.heap.get(&then_ap_addr)));
@@ -726,20 +729,18 @@ impl Machine {
     fn run_primitive_case_pair(m: &mut Machine) -> Result<(), MachineError> {
         let stack_copy = m.stack.clone();
 
-        //remove casePair
-        try!(m.stack.pop());
 
         let pair_ap_addr = try!(m.stack
-                                 .iter()
-                                 .nth(0)
-                                 .cloned()
-                                 .ok_or("expected left param, was not found on stack"));
+                                .iter()
+                                .nth(1)
+                                .cloned()
+                                .ok_or("expected pair parameter, was not found on stack"));
 
         let case_handler_ap_addr = try!(m.stack
-                                 .iter()
-                                 .nth(1)
-                                 .cloned()
-                                 .ok_or("expected right param, was not found on stack"));
+                                        .iter()
+                                        .nth(2)
+                                        .cloned()
+                                        .ok_or("expected handler parameter, was not found on stack"));
 
         let (_, case_handler_addr) = try!(unwrap_heap_node_to_ap(m.heap.get(&case_handler_ap_addr)));
         let (left_addr, right_addr) =  
@@ -753,43 +754,130 @@ impl Machine {
                 HeapAccessValue::SetupExecution => {
                     return Result::Ok(())
                 }
-        };
+            };
 
 
         //(f left) $ right
 
         //(f left)
         let ap_f_left = HeapNode::Application{
-                            fn_addr: case_handler_addr, 
-                            arg_addr: left_addr};
+            fn_addr: case_handler_addr, 
+            arg_addr: left_addr};
 
         let ap_f_left_addr = m.heap.alloc(ap_f_left);
 
         //(f left) $ right
         let ap_outer = HeapNode::Application{
-                            fn_addr: ap_f_left_addr,
-                            arg_addr: right_addr};
+            fn_addr: ap_f_left_addr,
+            arg_addr: right_addr};
 
-        //pop out 1:
+        //pop out 0:, 1:
+        try!(m.stack.pop());
         try!(m.stack.pop());
 
         //rewrite 2: with value
         m.heap.rewrite(&case_handler_ap_addr, ap_outer);
-            Result::Ok(())
+        Result::Ok(())
     }
+
+    //Calling Convention
+    //==================
+    //caseList <list-param> <nil-handler> <cons-handler>
+    //
+    //Reduction Rules
+    //===============
+    //
+    //Rule 1. (for Cons)
+    //0: caseList
+    //1: caseList $ (Cons x xs)
+    //2: caseList Cons x xs $ <nil-handler>
+    //3: caseList Cons x xs $ <nil-handler> $ <cons-handler>
+    //on rewrite
+    //3: <cons-handler> x xs
+
+    //Rule 2. (for Nil)
+    //0: caseList
+    //1: caseList $ (Nil)
+    //2: caseList Nil $ <nil-handler>
+    //3: caseList Nil $ <nil-handler> $ <cons-handler>
+    //on rewrite
+    //3: <nil-handler>
+    fn run_primitive_case_list(m: &mut Machine) -> Result<(), MachineError> {
+        let stack_copy = m.stack.clone();
+
+
+        //caseList $ <list-param>
+        let param_ap_addr = try!(m.stack
+                                 .iter()
+                                 .nth(1)
+                                 .cloned()
+                                 .ok_or("expected list parameter, was not found on stack"));
+
+        let nil_handler_ap_addr = try!(m.stack
+                                       .iter()
+                                       .nth(2)
+                                       .cloned()
+                                       .ok_or("expected nil handler, was not found on stack"));
+
+        let cons_handler_ap_addr = try!(m.stack
+                                        .iter()
+                                        .nth(3)
+                                        .cloned()
+                                        .ok_or("expected cons handler, was not found on stack"));
+
+
+        let list_data =  
+            match try!(setup_heap_node_access(m,
+                                              stack_copy,
+                                              param_ap_addr,
+                                              heap_try_list_access)) {
+                HeapAccessValue::Found(list_data) => list_data, 
+                HeapAccessValue::SetupExecution => return Result::Ok(())
+
+            };
+
+        //pop off 0: 1:, 2:
+        try!(m.stack.pop());
+        try!(m.stack.pop());
+        try!(m.stack.pop());
+
+        match list_data {
+            ListAccess::Nil => {
+                let (_, nil_handler_addr) = try!(unwrap_heap_node_to_ap(m.heap.get(&nil_handler_ap_addr)));
+                let nil_handler = m.heap.get(&nil_handler_addr);
+
+                m.heap.rewrite(&cons_handler_ap_addr, nil_handler)
+            } 
+            ListAccess::Cons(x_addr, xs_addr) => {
+                // (<cons_handler> $ x) $ xs
+                let (_, cons_handler_addr) = try!(unwrap_heap_node_to_ap(m.heap.get(&cons_handler_ap_addr)));
+                let ap_x = HeapNode::Application{fn_addr: cons_handler_addr,
+                arg_addr: x_addr};
+                let ap_x_addr = m.heap.alloc(ap_x);
+
+                let ap_xs = HeapNode::Application{fn_addr: ap_x_addr,
+                arg_addr: xs_addr};
+
+                m.heap.rewrite(&cons_handler_ap_addr, ap_xs);
+            }
+        };
+
+        Result::Ok(())
+    }
+
 
     //actually step the computation
     fn heap_node_step(&mut self, heap_val: &HeapNode) -> Result<Bindings, MachineError> {
         match heap_val {
             &HeapNode::Num(n) =>
-            return Result::Err(format!("number applied as a function: {}", n)),
-            data @ &HeapNode::Data{..} => Result::Err(format!(
-                                                              "data node applied as function: {:#?}", data)),
-            &HeapNode::Application{fn_addr, ..} => {
-                //push function address over the function
-                self.stack.push(fn_addr);
-                Result::Ok(self.globals.clone())
-            }
+                return Result::Err(format!("number applied as a function: {}", n)),
+                data @ &HeapNode::Data{..} => Result::Err(format!(
+                        "data node applied as function: {:#?}", data)),
+                        &HeapNode::Application{fn_addr, ..} => {
+                            //push function address over the function
+                            self.stack.push(fn_addr);
+                            Result::Ok(self.globals.clone())
+                        }
             &HeapNode::Indirection(ref addr) => {
                 //simply ignore an indirection during execution, and
                 //push the indirected value on the stack
@@ -797,6 +885,12 @@ impl Machine {
                 self.stack.push(*addr);
                 Result::Ok(self.globals.clone())
             }
+            //expand supercombinator
+            &HeapNode::Supercombinator(ref sc_defn) => {
+                run_supercombinator(self, sc_defn)
+
+            }
+
             &HeapNode::Primitive(MachinePrimOp::Negate) => {
                 try!(self.run_primitive_negate());
                 Result::Ok(self.globals.clone())
@@ -825,32 +919,32 @@ impl Machine {
             //boolean ops
             &HeapNode::Primitive(MachinePrimOp::G) => {
                 try!(self.run_primitive_num_binop(
-                                                  |x, y| bool_to_heap_node(x > y)));
+                        |x, y| bool_to_heap_node(x > y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::GEQ) => {
                 try!(self.run_primitive_num_binop(
-                                                  |x, y| bool_to_heap_node(x >= y)));
+                        |x, y| bool_to_heap_node(x >= y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::L) => {
                 try!(self.run_primitive_num_binop(
-                                                  |x, y| bool_to_heap_node(x < y)));
+                        |x, y| bool_to_heap_node(x < y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::LEQ) => {
                 try!(self.run_primitive_num_binop(
-                                                  |x, y| bool_to_heap_node(x <= y)));
+                        |x, y| bool_to_heap_node(x <= y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::EQ) => {
                 try!(self.run_primitive_num_binop(
-                                                  |x, y| bool_to_heap_node(x == y)));
+                        |x, y| bool_to_heap_node(x == y)));
                 Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::NEQ) => {
                 try!(self.run_primitive_num_binop(
-                                                  |x, y| bool_to_heap_node(x != y)));
+                        |x, y| bool_to_heap_node(x != y)));
                 Result::Ok(self.globals.clone())
             }
             //run if condition
@@ -862,10 +956,12 @@ impl Machine {
                 try!(Machine::run_primitive_case_pair(self));
                 Result::Ok(self.globals.clone())
             }
-            //expand supercombinator
-            &HeapNode::Supercombinator(ref sc_defn) => {
-                run_supercombinator(self, sc_defn)
-
+            &HeapNode::Primitive(MachinePrimOp::CaseList) => {
+                try!(Machine::run_primitive_case_list(self));
+                Result::Ok(self.globals.clone())
+            }
+            &HeapNode::Primitive(MachinePrimOp::Undef) => {
+                Result::Err("hit undefined operation".to_string())
             }
         }
     }
@@ -897,10 +993,10 @@ impl Machine {
             }
             CoreExpr::Pack{tag, arity} => {
                 let prim_for_pack = 
-                HeapNode::Primitive(MachinePrimOp::Construct{
-                    tag: try!(raw_tag_to_data_tag(tag)),
-                    arity: arity
-                });
+                    HeapNode::Primitive(MachinePrimOp::Construct{
+                        tag: try!(raw_tag_to_data_tag(tag)),
+                        arity: arity
+                    });
 
                 Result::Ok(self.heap.alloc(prim_for_pack))
 
@@ -912,43 +1008,43 @@ impl Machine {
 fn instantiate_let_bindings(m: &mut Machine,
                             orig_env: &Bindings,
                             bindings: Vec<(Name, Box<CoreExpr>)>) 
--> Result<Bindings, MachineError> {
+    -> Result<Bindings, MachineError> {
 
-    let mut env : Bindings = orig_env.clone();
+        let mut env : Bindings = orig_env.clone();
 
-    for (&(ref name, _), addr) in bindings.iter().zip(1..(bindings.len()+1))  {
-        env.insert(name.clone(), -(addr as i32));
-    }
-
-    let mut old_to_new_addr: HashMap<Addr, Addr> = HashMap::new();
-
-    //instantiate RHS, while storing legit LHS addresses
-    for (bind_name, bind_expr) in bindings.into_iter() {
-        let new_addr = try!(m.instantiate(*bind_expr.clone(), &env));
-        let old_addr = try!(env.get(&bind_name)
-                            .ok_or(format!("unable to find |{}| in env", bind_name)))
-        .clone();
-
-        old_to_new_addr.insert(old_addr, new_addr);
-
-        //insert the "correct" address into the let environment
-        env.insert(bind_name.clone(), new_addr);
-    }
-
-
-    for (old, new) in old_to_new_addr.iter() {
-        for to_edit in old_to_new_addr.values() {
-            change_addr_in_heap_node(*old,
-                                     *new,
-                                     *to_edit,
-                                     &mut m.heap);
+        for (&(ref name, _), addr) in bindings.iter().zip(1..(bindings.len()+1))  {
+            env.insert(name.clone(), -(addr as i32));
         }
 
+        let mut old_to_new_addr: HashMap<Addr, Addr> = HashMap::new();
+
+        //instantiate RHS, while storing legit LHS addresses
+        for (bind_name, bind_expr) in bindings.into_iter() {
+            let new_addr = try!(m.instantiate(*bind_expr.clone(), &env));
+            let old_addr = try!(env.get(&bind_name)
+                                .ok_or(format!("unable to find |{}| in env", bind_name)))
+                .clone();
+
+            old_to_new_addr.insert(old_addr, new_addr);
+
+            //insert the "correct" address into the let environment
+            env.insert(bind_name.clone(), new_addr);
+        }
+
+
+        for (old, new) in old_to_new_addr.iter() {
+            for to_edit in old_to_new_addr.values() {
+                change_addr_in_heap_node(*old,
+                                         *new,
+                                         *to_edit,
+                                         &mut m.heap);
+            }
+
+        }
+
+        Result::Ok(env)
+
     }
-
-    Result::Ok(env)
-
-}
 
 
 fn change_addr_in_heap_node(old_addr: Addr,
@@ -958,7 +1054,7 @@ fn change_addr_in_heap_node(old_addr: Addr,
 
     match heap.get(&edit_addr) {
         HeapNode::Data{component_addrs, tag} => {
-            
+
             let mut new_addrs = Vec::new();
             for i in 0..component_addrs.len() {
                 if component_addrs[i] == old_addr {
@@ -974,8 +1070,8 @@ fn change_addr_in_heap_node(old_addr: Addr,
             };
 
             heap.rewrite(&edit_addr, 
-                             HeapNode::Data{component_addrs: new_addrs,
-                                            tag:tag})
+                         HeapNode::Data{component_addrs: new_addrs,
+                         tag:tag})
         },
         HeapNode::Application{fn_addr, arg_addr} => {
             let new_fn_addr = if fn_addr == old_addr {
@@ -1010,18 +1106,18 @@ fn change_addr_in_heap_node(old_addr: Addr,
 
             heap.rewrite(&edit_addr,
                          HeapNode::Application{
-                           fn_addr: new_fn_addr,
-                           arg_addr: new_arg_addr
-                       });
+                             fn_addr: new_fn_addr,
+                             arg_addr: new_arg_addr
+                         });
 
         },
         HeapNode::Indirection(ref addr) =>
-        change_addr_in_heap_node(old_addr,
-                                 new_addr,
-                                 *addr,
-                                 &mut heap),
+            change_addr_in_heap_node(old_addr,
+                                     new_addr,
+                                     *addr,
+                                     &mut heap),
 
-        HeapNode::Primitive(_) => {}
+                                     HeapNode::Primitive(_) => {}
         HeapNode::Supercombinator(_) => {}
         HeapNode::Num(_) => {},
     }
@@ -1067,9 +1163,9 @@ fn run_supercombinator(m: &mut Machine, sc_defn: &SupercombDefn) -> Result<Bindi
             }
             else {
                 *arg_addrs.last()
-                .expect(concat!("arguments has no final value ",
-                                "even though the supercombinator ",
-                                "has >= 1 parameter"))
+                    .expect(concat!("arguments has no final value ",
+                                    "even though the supercombinator ",
+                                    "has >= 1 parameter"))
             }
         };
         m.heap.rewrite(&full_call_addr, HeapNode::Indirection(new_alloc_addr));
@@ -1108,14 +1204,14 @@ fn make_supercombinator_env(sc_defn: &SupercombDefn,
      * binding the RHS to the function parameter names.
      *
      */
-     for (arg_name, application_addr) in
-     sc_defn.args.iter().zip(stack_args.iter()) {
+    for (arg_name, application_addr) in
+        sc_defn.args.iter().zip(stack_args.iter()) {
 
-        let application = heap.get(application_addr);
-        let (_, param_addr) = try!(unwrap_heap_node_to_ap(application));
-        env.insert(arg_name.clone(), param_addr);
+            let application = heap.get(application_addr);
+            let (_, param_addr) = try!(unwrap_heap_node_to_ap(application));
+            env.insert(arg_name.clone(), param_addr);
 
-    }
+        }
     Result::Ok(env)
 }
 
@@ -1152,9 +1248,9 @@ where F: Fn(HeapNode) -> Result<T, MachineError> {
         //application that does into the indirection address
         m.heap.rewrite(&ap_addr, 
                        HeapNode::Application {
-                         fn_addr: fn_addr,
-                         arg_addr: ind_addr
-                     });
+                           fn_addr: fn_addr,
+                           arg_addr: ind_addr
+                       });
         return Result::Ok(HeapAccessValue::SetupExecution)
     };
 
@@ -1176,7 +1272,7 @@ fn heap_try_num_access(h: HeapNode) -> Result<i32, MachineError> {
     match h {
         HeapNode::Num(i) => Result::Ok(i),
         other @ _ => Result::Err(format!(
-                                         "expected number, found: {:#?}", other))
+                "expected number, found: {:#?}", other))
     }
 }
 
@@ -1188,7 +1284,7 @@ fn heap_try_bool_access(h: HeapNode) -> Result<bool, MachineError> {
         HeapNode::Data{tag: DataTag::TagFalse, ..} => Result::Ok(false),
         HeapNode::Data{tag: DataTag::TagTrue, ..} => Result::Ok(true),
         other @ _ => Result::Err(format!(
-                                         "expected true / false, found: {:#?}", other))
+                "expected true / false, found: {:#?}", other))
     }
 }
 
@@ -1196,15 +1292,35 @@ fn heap_try_pair_access(h: HeapNode) -> Result<(Addr, Addr), MachineError> {
     match h {
         HeapNode::Data{tag: DataTag::TagPair, ref component_addrs} => {
             let left = try!(component_addrs.get(0).ok_or(format!(
-                            "expected left component, of pair {:#?}, was not found", h)));
+                        "expected left component, of pair {:#?}, was not found", h)));
             let right = try!(component_addrs.get(1).ok_or(format!(
-                            "expected right component, of pair {:#?}, was not found", h)));
+                        "expected right component, of pair {:#?}, was not found", h)));
 
             Result::Ok((*left, *right))
         }
         other @ _ => 
             Result::Err(format!(
-                        "expected Pair tag, found: {:#?}", other))
+                    "expected Pair tag, found: {:#?}", other))
+    }
+}
+
+enum ListAccess { Nil, Cons (Addr, Addr) }
+fn heap_try_list_access(h: HeapNode) -> Result<ListAccess, MachineError> {
+    match h {
+        HeapNode::Data{tag: DataTag::TagListNil,..} => {
+            Result::Ok(ListAccess::Nil)
+        }
+        HeapNode::Data{tag: DataTag::TagListCons, ref component_addrs} => {
+            let x_addr = try!(component_addrs.get(0).cloned().ok_or(format!(
+                        "expected first component of list, found {:#?}", h)));
+            let xs_addr = try!(component_addrs.get(1).cloned().ok_or(format!(
+                        "expected second component of list, found {:#?}", h)));
+
+            Result::Ok((ListAccess::Cons(x_addr, xs_addr)))
+        }
+        other @ _ => 
+            Result::Err(format!(
+                    "expected Pair tag, found: {:#?}", other))
     }
 }
 
@@ -1217,7 +1333,7 @@ pub fn machine_is_final_state(m: &Machine) -> bool {
     } else {
         let dump_empty = m.dump.len() == 0;
         m.heap.get(&m.stack.peek().unwrap()).is_data_node() &&
-        dump_empty
+            dump_empty
     }
 }
 
@@ -1240,9 +1356,9 @@ fn print_stack(m: &Machine, env: &Bindings, s: &Stack) {
         for addr in s.iter() {
             let node = m.heap.get(addr);
             table.add_row(row![format_addr_string(addr),
-                          "->",
-                          format_heap_node(m, env, &node),
-                          format!("{:#?}", node)]);
+            "->",
+            format_heap_node(m, env, &node),
+            format!("{:#?}", node)]);
 
         }
         table.set_format(*FORMAT_CLEAN);
@@ -1286,9 +1402,9 @@ pub fn print_machine(m: &Machine, env: &Bindings) {
 
             let node = m.heap.get(addr);
             table.add_row(row![format_addr_string(addr),
-                          "->",
-                          format_heap_node(m, env, &node),
-                          format!("{:#?}", node)]);
+            "->",
+            format_heap_node(m, env, &node),
+            format!("{:#?}", node)]);
 
 
         }
@@ -1316,10 +1432,10 @@ fn run_machine(program:  &str) -> Machine {
     use frontend::string_to_program;
 
     let main = string_to_program(program.to_string())
-    .unwrap();
+        .unwrap();
     let mut m = Machine::new_with_main(main);
     while !machine_is_final_state(&m) {
-        let _ = m.step();
+        let _ = m.step().unwrap();
     }
     return m
 }
@@ -1424,5 +1540,29 @@ fn test_case_pair_complex_access_function() {
     assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(6));
 }
 
+#[test]
+fn test_list_cons_simple() {
+    let m = run_machine("main = caseList (Cons 1 Nil) undef K");
+    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(1));
+}
+
+#[test]
+fn test_list_cons_complex() {
+    //TODO: improve this test by encoding a fold
+    let m = run_machine("main = caseList (Cons 1 (Cons 2 Nil)) undef K");
+    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(1));
+}
+
+#[test]
+fn test_list_nil_simple() {
+    let m = run_machine("main = caseList Nil (10) undef");
+    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(10));
+}
+
+#[test]
+fn test_nil_complex() {
+    let m = run_machine("main = caseList Nil (10 * 20) undef");
+    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(200));
+}
 
 
