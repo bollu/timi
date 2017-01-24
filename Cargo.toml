@@ -1,14 +1,20 @@
 [package]
-name = "graphreduction"
+name = "timi"
 version = "0.1.0"
 authors = ["bollu <siddu.druid@gmail.com>"]
+description = "A visual template instantiation machine interpreter to understand how lazy functional programming languages evaluate"
+
+homepage = "https://github.com/bollu/timi"
+repository = "https://github.com/bollu/timi"
+documentation = "https://github.com/bollu/timi"
+readme = "README.md"
+
+keywords = ["interpreter", "haskell", "lazy", "functional", "languages"]
+categories = ["command-line-interface", "visualization", "emulators"]
+
+license = "MIT"
 
 [dependencies]
 ansi_term = "0.9"
 termion = "1.0"
 prettytable-rs = "^0.6"
-
-
-[dependencies.pad]
-git = "https://github.com/ogham/rust-pad.git"
-
