@@ -27,7 +27,7 @@ lazily evaluated functional programming language is evaluated.
 #### Binary from  `cargo`
 To quickly get the interpreter `timi` if you have `cargo` (Rust's package manager), run
 ```bash
-$ cargo install timi
+$ cargo install timi && timi
 ```
 
 #### Build from source

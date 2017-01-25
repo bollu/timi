@@ -14,7 +14,10 @@ use frontend::*;
 use machine::*;
 
 
-fn run_step_interaction<C>(rl: &mut Editor<C>, iter_count: i32, m: &Machine) ->
+fn run_step_interaction<C>(rl: &mut Editor<C>,
+                           iter_count: i32,
+                           m: &Machine,
+                           pause_per_step: &mut bool) ->
     Result<(), ReadlineError>
     where C: Completer {
     loop {
@@ -28,26 +31,30 @@ fn run_step_interaction<C>(rl: &mut Editor<C>, iter_count: i32, m: &Machine) ->
         if input == "" {
             continue;
         }
-        else if input == "help" {
-            println!("*** HELP ***\n\
-                     help - bring up help\n\
-                     stack - show current stack
-                     step, s, n - step / go to next state\n\
-                     ")
+        else if input == ":help" {
+            println!("*** HELP ***");
+            println!(":help - bring up help");
+            println!(":stack - show current state");
+            println!(":nostep - disable stepping and run through the code");
+            println!("n - go to next state");
        }
-        else if input == "stack" {
+        else if input == ":stack" {
             print_machine_stack(m);
         }
-        else if input == "s" || input == "n" || input == "step" {
+        else if input == ":nostep" {
+            *pause_per_step = false;
+            return Result::Ok(());
+        }
+        else if input == "n" {
             return Result::Ok(());
         }
         else {
-            println!("unrecognized: |{}|, type help for help.", input)
+            println!("unrecognized: |{}|, type :help for help.", input)
         }
 
     }
 }
-fn run_machine<C>(rl: &mut Editor<C>, m: &mut Machine, pause_per_step: bool) ->
+fn run_machine<C>(rl: &mut Editor<C>, m: &mut Machine, pause_per_step: &mut bool) ->
     Result<(), ReadlineError>
     where C: Completer {
 
@@ -67,8 +74,8 @@ fn run_machine<C>(rl: &mut Editor<C>, m: &mut Machine, pause_per_step: bool) ->
             break;
         }
 
-        if pause_per_step {
-            try!(run_step_interaction(rl, i, m));
+        if *pause_per_step {
+            try!(run_step_interaction(rl, i, m, pause_per_step));
         }
         i += 1;
     }
@@ -100,17 +107,24 @@ fn main() {
         if input == "" {
             continue;
         }
-        if input == "exit".to_string() {
+        if input == ":exit".to_string() {
             break;
         }
-        else if input == "step" {
+        else if input == ":step" {
             pause_per_step = true;
+            println!("enabled stepping through execution");
             continue;
         }
-        else if input =="nostep" {
+        else if input ==":nostep" {
             pause_per_step = false;
+            println!("disabled stepping through execution");
             continue;
 
+        }
+        else if input == ":help" {
+            println!(":help - bring up help");
+            println!(":step - enable stepping through execution");
+            println!(":nostep - disable stepping through execution");
         }
 
 
@@ -137,7 +151,7 @@ fn main() {
             };
             m.set_main_expr(&expr);
             
-            match run_machine(&mut rl, &mut m, pause_per_step) {
+            match run_machine(&mut rl, &mut m, &mut pause_per_step) {
                 Result::Ok(()) => {},
                 Err(ReadlineError::Interrupted) |
                 Err(ReadlineError::Eof) => {
