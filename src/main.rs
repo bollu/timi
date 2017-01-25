@@ -11,7 +11,7 @@ use frontend::*;
 use machine::*;
 
 
-fn run_step_interaction(iter_count: i32, m: &Machine, env: &Bindings) {
+fn run_step_interaction(iter_count: i32, m: &Machine) {
     use std::io::Write;
     loop {
         print!("{}>> ", iter_count);
@@ -31,7 +31,7 @@ fn run_step_interaction(iter_count: i32, m: &Machine, env: &Bindings) {
                      ")
        }
         else if input == ":stack" {
-            print_machine_stack(m, env);
+            print_machine_stack(m);
         }
         else if input == "s" || input == "step" {
             return;
@@ -46,14 +46,12 @@ fn run_step_interaction(iter_count: i32, m: &Machine, env: &Bindings) {
 fn run_machine(m: &mut Machine, pause_per_step: bool) {
 
     let mut i = 0;
-    let mut env;
     loop {
         match m.step() {
-            Result::Ok(env_cur) => {
+            Result::Ok(()) => {
                 println!("*** ITERATION: {}", i);
                 i += 1;
-                env = env_cur;
-                print_machine(&m, &env);
+                print_machine(&m);
             },
             Result::Err(e) => {
                 print!("step error: {}\n", e);
@@ -68,7 +66,7 @@ fn run_machine(m: &mut Machine, pause_per_step: bool) {
 
 
         if pause_per_step {
-            run_step_interaction(i, m, &env);
+            run_step_interaction(i, m);
         }
     }
 }

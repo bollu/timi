@@ -14,6 +14,7 @@ lazily evaluated functional programming language is evaluated.
 
 # Table of Contents
 - [Quickstart](#quickstart)
+- [Interpreter Details](#interpreter-options)
 - [Language Introduction](#language-introduction)
 - [Runtime](#runtime)
 - [Roadmap](#roadmap)
@@ -23,7 +24,63 @@ lazily evaluated functional programming language is evaluated.
 
 ## Quickstart
 
+#### Binary from  `cargo`
+To quickly get the interpreter `timi` if you have `cargo` (Rust's package manager), run
+```bash
+$ cargo install timi
+```
+
+#### Build from source
+run
+```bash
+$ git clone https://github.com/bollu/timi.git && cd timi && cargo run
+```
+
+
+#### Using the interpreter
+
+Type out expressions if you want them to be evaluated. For example:
+```
+> 1 + 1
+```
+will cause `1 + 1` to be evaluated
+
+
+Use `let <id> [<param>]* = <expr>` to create function bindings
+```
+> let plus x y = x + y
+> plus 1 1
+```
+will create a function called `plus` that takes two parameters `x` and `y`
+
+
+## Interpreter Details
+
+
+#### `>:step`
+To go through the execution step-by-step, use
+```
+>:step
+
+On entering an expression in this mode, the prompt will change to
+```
+{step of execution}>>
+```
+
+- Use `>>s` to go to the next step
+
+
+#### `>:nostep`
+to enable continuous execution of the entire program, use
+```
+>:nostep
+```
+
 ## Language Introduction
+
+The language can be seen as a reduced Haskell-like language.
+
+### Supercombinators
 
 
 ## Runtime

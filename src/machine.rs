@@ -175,15 +175,16 @@ impl HeapNode {
 }
 
 
-fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
+//FIXME: find a way to print recursive types
+fn format_heap_node(heap: &Heap, node: &HeapNode) -> String {
     match node {
-        &HeapNode::Indirection(addr) => format!("indirection({})", format_heap_node(m, env, &m.heap.get(&addr))),
+        &HeapNode::Indirection(addr) => format!("indirection({})", format_heap_node(heap, &heap.get(&addr))),
         &HeapNode::Num(num) => format!("{}", num),
         &HeapNode::Primitive(ref primop) => format!("{:#?}", primop),
         &HeapNode::Application{ref fn_addr, ref arg_addr} =>
             format!("({} {})",
-            format_heap_node(m, env, &m.heap.get(fn_addr)),
-            format_heap_node(m, env, &m.heap.get(arg_addr))),
+            format_heap_node(heap, &heap.get(fn_addr)),
+            format_heap_node(heap, &heap.get(arg_addr))),
         &HeapNode::Supercombinator(ref sc_defn) =>  {
             let mut sc_str = String::new();
             write!(&mut sc_str, "{}", sc_defn.name).unwrap();
@@ -196,31 +197,33 @@ fn format_heap_node(m: &Machine, env: &Bindings, node: &HeapNode) -> String {
             format!("False")
         }
         &HeapNode::Data{tag: DataTag::TagPair, ref component_addrs} => {
-            let left = m.heap.get(component_addrs.get(0).unwrap());
-            let right = m.heap.get(component_addrs.get(1).unwrap());
+            let left = heap.get(component_addrs
+                                  .get(0)
+                                  .expect("left component of tuple expected"));
+            let right = heap.get(component_addrs
+                                   .get(1)
+                                   .expect("right component of tuple expected"));
             format!("({}, {})",
-                    format_heap_node(m, env, &left),
-                    format_heap_node(m, env, &right))
+                    format_heap_node(heap, &left),
+                    format_heap_node(heap, &right))
         }
-
-        &HeapNode::Data{ref tag, ref component_addrs} => {
-            let mut data_str = String::new();
-            data_str  += &format!("data-(tag:{:#?}",
-                                  tag);
-
-            if component_addrs.len() == 0 {
-                data_str += ")";
-            }else{
-                data_str += " | data:";
-                for c in component_addrs.iter() {
-                    data_str += 
-                        &format!(" {}", format_heap_node(m, env, &m.heap.get(c)))
-                }
-                data_str += ")";
-            } 
-            data_str
+        &HeapNode::Data{tag: DataTag::TagListNil, ..} => {
+            format!("[]")
         }
+        &HeapNode::Data{tag: DataTag::TagListCons, ref component_addrs} => {
+            let left = heap.get(component_addrs
+                                  .get(0)
+                                  .expect("expected left component \
+                                           of list constructor"));
+            let right = heap.get(component_addrs
+                                   .get(1)
+                                   .expect("expected right component of list\
+                                           constructor"));
 
+            format!("{}:{}", format_heap_node(heap, &left),
+                    format_heap_node(heap, &right))
+
+        }
     }
 }
 
@@ -248,6 +251,7 @@ fn collect_addrs_from_heap_node(heap: &Heap, node: &HeapNode, collection: &mut H
     };
 }
 
+
 fn unwrap_heap_node_to_ap(node: HeapNode) -> 
 Result<(Addr, Addr), MachineError> {
 
@@ -260,7 +264,6 @@ Result<(Addr, Addr), MachineError> {
     }
 }
 
-//unsued for mark 1
 // a dump is a vector of stacks
 pub type Dump = Vec<Stack>;
 
@@ -513,8 +516,7 @@ impl Machine {
         self.stack = Stack { stack: vec![main_addr] };
     }
 
-    //returns bindings of this run
-    pub fn step(&mut self) -> Result<Bindings, MachineError>{
+    pub fn step(&mut self) -> Result<(), MachineError>{
         //top of stack
         let tos_addr : Addr = try!(self.stack.peek());
         let heap_val = self.heap.get(&tos_addr);
@@ -526,7 +528,7 @@ impl Machine {
             self.stack = self.dump
                 .pop()
                 .expect("dump should have at least 1 element");
-            Result::Ok(self.globals.clone())
+            Result::Ok(())
         } else {
             self.heap_node_step(&heap_val)
         }
@@ -885,103 +887,90 @@ impl Machine {
 
 
     //actually step the computation
-    fn heap_node_step(&mut self, heap_val: &HeapNode) -> Result<Bindings, MachineError> {
+    fn heap_node_step(&mut self, heap_val: &HeapNode) -> Result<(), MachineError> {
         match heap_val {
-            &HeapNode::Num(n) =>
-                return Result::Err(format!("number applied as a function: {}", n)),
-                data @ &HeapNode::Data{..} => Result::Err(format!(
-                        "data node applied as function: {:#?}", data)),
-                        &HeapNode::Application{fn_addr, ..} => {
-                            //push function address over the function
-                            self.stack.push(fn_addr);
-                            Result::Ok(self.globals.clone())
-                        }
+            &HeapNode::Num(n) => {
+                return Result::Err(format!("number applied as a function: {}", n));
+            }
+            
+            data @ &HeapNode::Data{..} => {
+                return Result::Err(format!(
+                        "data node applied as function: {:#?}", data));
+            }
+            &HeapNode::Application{fn_addr, ..} => {
+                //push function address over the function
+                self.stack.push(fn_addr);
+            }
             &HeapNode::Indirection(ref addr) => {
                 //simply ignore an indirection during execution, and
                 //push the indirected value on the stack
                 try!(self.stack.pop());
                 self.stack.push(*addr);
-                Result::Ok(self.globals.clone())
             }
             //expand supercombinator
             &HeapNode::Supercombinator(ref sc_defn) => {
-                run_supercombinator(self, sc_defn)
-
+                try!(run_supercombinator(self, sc_defn));
             }
 
             &HeapNode::Primitive(MachinePrimOp::Negate) => {
                 try!(self.run_primitive_negate());
-                Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::Add) => {
                 try!(self.run_primitive_num_binop(|x, y| HeapNode::Num(x + y)));
-                Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::Sub) => {
                 try!(self.run_primitive_num_binop(|x, y| HeapNode::Num(x - y)));
-                Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::Mul) => {
                 try!(self.run_primitive_num_binop(|x, y| HeapNode::Num(x * y)));
-                Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::Div) => {
                 try!(self.run_primitive_num_binop(|x, y| HeapNode::Num(x / y)));
-                Result::Ok(self.globals.clone())
             }
             //construct a complex type
             &HeapNode::Primitive(MachinePrimOp::Construct {ref tag, arity}) => {
                 try!(self.run_constructor(tag, arity));
-                Result::Ok(self.globals.clone())
             }
             //boolean ops
             &HeapNode::Primitive(MachinePrimOp::G) => {
                 try!(self.run_primitive_num_binop(
                         |x, y| bool_to_heap_node(x > y)));
-                Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::GEQ) => {
                 try!(self.run_primitive_num_binop(
                         |x, y| bool_to_heap_node(x >= y)));
-                Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::L) => {
                 try!(self.run_primitive_num_binop(
                         |x, y| bool_to_heap_node(x < y)));
-                Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::LEQ) => {
                 try!(self.run_primitive_num_binop(
                         |x, y| bool_to_heap_node(x <= y)));
-                Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::EQ) => {
                 try!(self.run_primitive_num_binop(
                         |x, y| bool_to_heap_node(x == y)));
-                Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::NEQ) => {
                 try!(self.run_primitive_num_binop(
                         |x, y| bool_to_heap_node(x != y)));
-                Result::Ok(self.globals.clone())
             }
             //run if condition
             &HeapNode::Primitive(MachinePrimOp::If) => {
                 try!(self.run_primitive_if());
-                Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::CasePair) => {
                 try!(Machine::run_primitive_case_pair(self));
-                Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::CaseList) => {
                 try!(Machine::run_primitive_case_list(self));
-                Result::Ok(self.globals.clone())
             }
             &HeapNode::Primitive(MachinePrimOp::Undef) => {
-                Result::Err("hit undefined operation".to_string())
+                return Result::Err("hit undefined operation".to_string())
             }
-        }
+        };
+        Result::Ok(())
     }
 
 
@@ -1142,7 +1131,7 @@ fn change_addr_in_heap_node(old_addr: Addr,
 }
 
 
-fn run_supercombinator(m: &mut Machine, sc_defn: &SupercombDefn) -> Result<Bindings, MachineError> {
+fn run_supercombinator(m: &mut Machine, sc_defn: &SupercombDefn) -> Result<(), MachineError> {
 
     //pop the supercombinator
     let sc_addr = try!(m.stack.pop());
@@ -1182,17 +1171,18 @@ fn run_supercombinator(m: &mut Machine, sc_defn: &SupercombDefn) -> Result<Bindi
             else {
                 *arg_addrs.last()
                     .expect(concat!("arguments has no final value ",
-                                    "even though the supercombinator ",
+                                    "even though the Supercombinator ",
                                     "has >= 1 parameter"))
             }
         };
         m.heap.rewrite(&full_call_addr, HeapNode::Indirection(new_alloc_addr));
     }
-    Result::Ok(env)
+
+    Result::Ok(())
 }
 
 
-//make an environment for the execution of the supercombinator
+//make an environment for the execution of the Supercombinator
 fn make_supercombinator_env(sc_defn: &SupercombDefn,
                             heap: &Heap,
                             stack_args:&Vec<Addr>,
@@ -1362,7 +1352,7 @@ pub fn machine_get_final_val(m: &Machine) -> HeapNode {
 
 
 
-fn print_stack(m: &Machine, env: &Bindings, s: &Stack) {
+fn print_stack(heap: &Heap, s: &Stack) {
     if s.len() == 0 {
 
     }
@@ -1372,10 +1362,10 @@ fn print_stack(m: &Machine, env: &Bindings, s: &Stack) {
         let mut table = Table::new();
 
         for addr in s.iter() {
-            let node = m.heap.get(addr);
+            let node = heap.get(addr);
             table.add_row(row![format_addr_string(addr),
             "->",
-            format_heap_node(m, env, &node),
+            format_heap_node(&heap, &node),
             format!("{:#?}", node)]);
 
         }
@@ -1386,42 +1376,42 @@ fn print_stack(m: &Machine, env: &Bindings, s: &Stack) {
     print!("{}", Black.underline().paint("## bottom ##\n"));
 }
 
-pub fn print_machine_stack(m: &Machine, env: &Bindings) {
-    print_stack(m, env, &m.stack);
+pub fn print_machine_stack(m: &Machine) {
+    print_stack(&m.heap, &m.stack);
 }
 
 
-pub fn print_machine(m: &Machine, env: &Bindings) {
+pub fn print_machine(m: &Machine) {
 
-    let mut addr_collection : HashSet<Addr> = HashSet::new();
+    let mut addrs_in_ : HashSet<Addr> = HashSet::new();
     for addr in m.stack.iter() {
-        addr_collection.insert(*addr);
-        collect_addrs_from_heap_node(&m.heap, &m.heap.get(addr), &mut addr_collection);
+        addrs_in_.insert(*addr);
+        collect_addrs_from_heap_node(&m.heap, &m.heap.get(addr), &mut addrs_in_);
 
     }
 
     for s in m.dump.iter() {
         for addr in s.iter() {
-            collect_addrs_from_heap_node(&m.heap, &m.heap.get(addr), &mut addr_collection);
+            collect_addrs_from_heap_node(&m.heap, &m.heap.get(addr), &mut addrs_in_);
         }
     }
 
     println!("{}", Blue.paint(format!("Stack - {} items", m.stack.len())));
 
-    print_stack(m, env, &m.stack);
+    print_stack(&m.heap, &m.stack);
     println!("{}", Blue.paint(format!("Heap - {} items", m.heap.len())));
 
-    if addr_collection.len() == 0 {
+    if addrs_in_.len() == 0 {
         println!("  Empty");
     }
     else {
         let mut table = Table::new();
-        for addr in addr_collection.iter() {
+        for addr in addrs_in_.iter() {
 
             let node = m.heap.get(addr);
             table.add_row(row![format_addr_string(addr),
             "->",
-            format_heap_node(m, env, &node),
+            format_heap_node(&m.heap, &node),
             format!("{:#?}", node)]);
 
 
@@ -1437,10 +1427,37 @@ pub fn print_machine(m: &Machine, env: &Bindings) {
     }
     else {
         for s in m.dump.iter() {
-            print_stack(m, env, s);
+            print_stack(&m.heap, s);
             println!("{}", Black.paint("---"));
         }
     }
+
+    println!("{}", Blue.paint(format!("Globals - {} items", m.globals.len())));
+    let globals_in_use = {
+        let mut globals = Vec::new();
+        for (name, addr) in m.globals.iter() {
+            if addrs_in_.contains(addr) {
+                globals.push((name, addr));
+            }
+        }
+        globals
+    };
+    if globals_in_use.len() == 0 {
+        println!("None in Use");        
+    }
+    else {
+        let mut table = Table::new();
+        for &(name, addr) in globals_in_use.iter() {
+
+            table.add_row(row![name,
+            "->",
+            format_addr_string(addr)]);
+        }
+        table.set_format(*FORMAT_CLEAN);
+        table.printstd();
+
+    }
+
     println!("{}", Red.bold().paint("===///==="));
 }
 

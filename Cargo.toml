@@ -16,5 +16,9 @@ license = "MIT"
 
 [dependencies]
 ansi_term = "0.9"
-termion = "1.0"
 prettytable-rs = "^0.6"
+
+
+[[bin]]
+name = "timi"
+path = "src/main.rs"
