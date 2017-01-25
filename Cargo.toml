@@ -17,9 +17,6 @@ license = "MIT"
 [dependencies]
 ansi_term = "0.9"
 prettytable-rs = "^0.6"
-rustyline = "1.0.0"
-rand = "0.3"
-
 
 
 [[bin]]

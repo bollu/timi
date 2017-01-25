@@ -23,7 +23,6 @@ pub enum CoreExpr {
     Application(Box<CoreExpr>, Box<CoreExpr>),
     Pack{tag: u32, arity: u32},
     Let(CoreLet),
-    Lambda(Box<SupercombDefn>)
 }
 
 impl fmt::Debug for CoreExpr {
@@ -47,17 +46,6 @@ impl fmt::Debug for CoreExpr {
                 try!(write!(fmt, "in\n"));
                 try!(write!(fmt, "{:#?}", expr));
                 write!(fmt, "}}")
-            }
-            &CoreExpr::Lambda(ref supercomb) => {
-                try!(write!(fmt, "("));
-                try!(write!(fmt, "\\"));
-
-                for arg in supercomb.args.iter() {
-                    try!(write!(fmt, "{} ", arg));
-                }
-                try!(write!(fmt, "-> "));
-                try!(write!(fmt, "{:#?}", supercomb.body));
-                write!(fmt, ")")
             }
             &CoreExpr::Pack{ref tag, ref arity} => {
                 write!(fmt, "Pack(tag: {} arity: {})", tag, arity)
