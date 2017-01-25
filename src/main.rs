@@ -1,7 +1,10 @@
 #[macro_use]
 extern crate prettytable;
+extern crate rustyline;
 
-use std::io; //for IO
+use rustyline::error::ReadlineError;
+use rustyline::Editor;
+use rustyline::completion::Completer;
 
 mod frontend;
 mod ir;
@@ -11,84 +14,89 @@ use frontend::*;
 use machine::*;
 
 
-fn run_step_interaction(iter_count: i32, m: &Machine) {
-    use std::io::Write;
+fn run_step_interaction<C>(rl: &mut Editor<C>, iter_count: i32, m: &Machine) ->
+    Result<(), ReadlineError>
+    where C: Completer {
     loop {
-        print!("{}>> ", iter_count);
-        io::stdout().flush().unwrap();
+        let input = {
+            let prompt = format!("{}>>", iter_count);
+            let raw_input : String = try!(rl.readline(&prompt));
+            raw_input.trim().to_string()
+        };
+        rl.add_history_entry(&input);
 
-        let mut input = String::new();
-        let _ = io::stdin().read_line(&mut input).unwrap();
-
-        input = input.trim().to_string();
         if input == "" {
             continue;
         }
-        else if input == ":help" {
+        else if input == "help" {
             println!("*** HELP ***\n\
-                     :help - bring up help\n\
-                     :stack - show current stack
+                     help - bring up help\n\
+                     stack - show current stack
+                     step, s, n - step / go to next state\n\
                      ")
        }
-        else if input == ":stack" {
+        else if input == "stack" {
             print_machine_stack(m);
         }
-        else if input == "s" || input == "step" {
-            return;
+        else if input == "s" || input == "n" || input == "step" {
+            return Result::Ok(());
         }
         else {
-            println!("unrecognized: |{}|, type :help for help.", input)
-
+            println!("unrecognized: |{}|, type help for help.", input)
         }
 
     }
 }
-fn run_machine(m: &mut Machine, pause_per_step: bool) {
+fn run_machine<C>(rl: &mut Editor<C>, m: &mut Machine, pause_per_step: bool) ->
+    Result<(), ReadlineError>
+    where C: Completer {
 
-    let mut i = 0;
+    let mut i = 1;
     loop {
-        match m.step() {
-            Result::Ok(()) => {
-                println!("*** ITERATION: {}", i);
-                i += 1;
-                print_machine(&m);
-            },
-            Result::Err(e) => {
-                print!("step error: {}\n", e);
-                break;
-            }
-        };
+        println!("*** ITERATION: {}", i);
 
-        if machine_is_final_state(&m) {
+        if let Result::Err(e) = m.step() {
+            print!("step error: {}\n", e);
+            break;
+
+        }
+
+        print_machine(&m);
+        if m.is_final_state() {
             println!("=== FINAL: {:#?} ===", machine_get_final_val(&m));
             break;
         }
 
-
         if pause_per_step {
-            run_step_interaction(i, m);
+            try!(run_step_interaction(rl, i, m));
         }
+        i += 1;
     }
+
+    Result::Ok(())
 }
 
 fn main() {
-    use std::io::Write;
     let mut pause_per_step = false;
     let mut m : Machine = Machine::new_minimal();
+    let mut rl = Editor::<()>::new();
 
     loop {
-        print!(">");
-        io::stdout().flush().unwrap();
 
-        let input = {
-            let mut input : String = String::new();
-            match io::stdin().read_line(&mut input) {
-                Ok(_) => {}
-                Err(error) => panic!("error in read_line: {}", error)
-            };
-            input.trim().to_string()
+        let input = match rl.readline(">") {
+            Ok(line) => {
+                rl.add_history_entry(&line);
+                line
+            }
+            Err(ReadlineError::Interrupted) |
+            Err(ReadlineError::Eof) => {
+                break
+            }
+            Err(err) => {
+                panic!("readline error: {}", err)
+            }
+
         };
-
         if input == "" {
             continue;
         }
@@ -128,7 +136,17 @@ fn main() {
                 }
             };
             m.set_main_expr(&expr);
-            run_machine(&mut m, pause_per_step);
+            
+            match run_machine(&mut rl, &mut m, pause_per_step) {
+                Result::Ok(()) => {},
+                Err(ReadlineError::Interrupted) |
+                Err(ReadlineError::Eof) => {
+                    break
+                }
+                Err(err) => {
+                    panic!("readline error: {}", err)
+                } 
+            }
         }
     }
 }

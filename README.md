@@ -67,7 +67,7 @@ On entering an expression in this mode, the prompt will change to
 {step of execution}>>
 ```
 
-- Use `>>s` to go to the next step
+- Use `>>s` (for `step`) or `>>n` (for `next`) to go to the next step
 
 
 #### `>:nostep`
