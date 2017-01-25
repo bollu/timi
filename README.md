@@ -14,9 +14,18 @@ lazily evaluated functional programming language is evaluated.
 
 # Table of Contents
 - [Quickstart](#quickstart)
-- [Interpreter Details](#interpreter-options)
+- [Interpreter Options & Usage](#interpreter-options)
 - [Language Introduction](#language-introduction)
+    - [Top level](#top-level)
+    - [Expressions](#expressions)
+    - [Lack of Lambda & Case](#lack-of-lambda-and-case)
+    - [Code Examples](#code-examples)
 - [Runtime](#runtime)
+    - [Instantiation](#instantiation)
+    - [Evaluation](#evaluation)
+    - [Supercombinators](#supercombinators)
+    - [Primitive](#supercombinators)
+    - [Data Constructors](#supercombinators)
 - [Roadmap](#roadmap)
 - [Design Decisions](#design-decisions)
 - [Stuff I Learnt](#stuff-I-learnt)
@@ -54,7 +63,7 @@ Use `let <id> [<param>]* = <expr>` to create function bindings
 will create a function called `plus` that takes two parameters `x` and `y`
 
 
-## Interpreter Details
+## Interpreter Options & Usage
 
 
 #### `>:step`
@@ -78,10 +87,14 @@ to enable continuous execution of the entire program, use
 
 ## Language Introduction
 
-The language can be seen as a reduced Haskell-like language.
+The language can be seen as a reduced Haskell-like language. It is called `Core`,
+both in `TIMi` and in `GHC (Glasgow haskell compiler)`, as it forms the minimal
+subset for interpretation.
 
-### Supercombinators
-
+#### Top Level
+#### Expressions
+#### Lack of Lambda & Case
+#### Code Examples
 
 ## Runtime
 
@@ -94,11 +107,6 @@ The language can be seen as a reduced Haskell-like language.
 - [x] Tuples
 - [x] Lists
 - [x] nicer interface for stepping through execution
-- [ ] write higher order functions in Rust to help with implementing structured data
-- [ ] Rust docs for `Supercombinator`
-- [ ] Rust docs for `Update`
-- [ ] Rust docs for `Primitive`
-
 
 
 ### Design Decisions
