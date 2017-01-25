@@ -647,10 +647,6 @@ impl Machine {
                 let let_env = try!(instantiate_let_bindings(self, env, bindings));
                 self.instantiate(*let_rhs, &let_env)
             }
-            //TODO: check if this is correct!
-            CoreExpr::Lambda(sc_defn) => {
-               Result::Ok(self.add_supercombinator(*sc_defn))
-            }
             CoreExpr::Num(x) => Result::Ok(self.heap.alloc(HeapNode::Num(x))),
             CoreExpr::Application(fn_expr, arg_expr) => {
                 let fn_addr = try!(self.instantiate(*fn_expr, env));
@@ -1475,7 +1471,7 @@ fn run_machine(program:  &str) -> Machine {
     let main = string_to_program(program.to_string())
         .unwrap();
     let mut m = Machine::new_with_main(main);
-    while !machine_is_final_state(&m) {
+    while !m.is_final_state() {
         let _ = m.step().unwrap();
     }
     return m

@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use std::cmp; //for max
 
 use ir::*;
-use self::rand::Rng;
 
 
 
@@ -52,8 +51,6 @@ pub enum CoreToken {
         CloseCurlyBracket,
         Comma,
         Integer(String),
-        Lambda,
-        LambdaArrow,
         Or,
         And,
         L,
@@ -177,9 +174,7 @@ Result<(CoreToken, usize), ParseError> {
     ("+", CoreToken::Plus),
     ("-", CoreToken::Minus),
     ("*", CoreToken::Mul),
-    ("/", CoreToken::Div),
-    ("->", CoreToken::LambdaArrow),
-    ("\\", CoreToken::Lambda)]
+    ("/", CoreToken::Div)]
         .iter().cloned().collect();
 
 
@@ -594,46 +589,10 @@ Result<CoreExpr, ParseError> {
     match c.peek() {
         CoreToken::Let => parse_let(&mut c).map(|l| CoreExpr::Let(l)),
         CoreToken::LetRec => parse_let(&mut c).map(|l| CoreExpr::Let(l)),
-        CoreToken::Lambda => parse_lambda(&mut c),
         _ => parse_or(&mut c)
     }
 }
 
-fn parse_lambda(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
-    try!(c.expect(CoreToken::Lambda));
-
-    let mut args = Vec::new();
-    while c.peek() != CoreToken::PeekNoToken &&
-          c.peek() != CoreToken::LambdaArrow {
-        match try!(c.consume()) {
-            CoreToken::Ident(name) => {
-                args.push(name)
-            }
-            other @ _ => return 
-            Result::Err(ParseError::ErrorStr(format!("expected identified, found {:#?}", other)))
-
-        }
-    }
-    try!(c.expect(CoreToken::LambdaArrow));
-    let expr = try!(parse_expr(&mut c));
-    
-    let lambda_name = {
-        let mut rng = rand::thread_rng();
-       //we want 4 letter hex numbers: (2^4)^4 = 2^16
-       let uid = rng.gen::<i16>();
-       let name = format!("lambda-{:X}", uid);
-        name 
-    };
-
-    Result::Ok(CoreExpr::Lambda(
-        Box::new(SupercombDefn {
-            name: lambda_name,
-            args: args,
-            body: expr,
-
-        }
-    )))
-}
 
 fn parse_supercombinator(mut c: &mut ParserCursor) ->
 Result<SupercombDefn, ParseError> {
