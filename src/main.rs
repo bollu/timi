@@ -125,12 +125,14 @@ fn main() {
             println!(":help - bring up help");
             println!(":step - enable stepping through execution");
             println!(":nostep - disable stepping through execution");
+            print!("use 'define <name> [<param>]* = <expr>' to define a toplevel function");
+            print!("write out an expression to have it evaluated");
         }
 
 
         //someone is defining a binding
-        if input.starts_with("let ") {
-            let sc_defn_str = input.trim_left_matches("let ").to_string();
+        if input.starts_with("define ") {
+            let sc_defn_str = input.trim_left_matches("define ").to_string();
             let sc_defn = match string_to_sc_defn(sc_defn_str) {
                 Result::Ok(defn) => defn,
                 Result::Err(e) => {
