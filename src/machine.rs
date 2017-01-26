@@ -176,78 +176,91 @@ impl HeapNode {
 
 
 //FIXME: find a way to print recursive types
-fn format_heap_node(heap: &Heap, node: &HeapNode) -> String {
-    match node {
-        &HeapNode::Indirection(addr) => format!("indirection({})", format_heap_node(heap, &heap.get(&addr))),
-        &HeapNode::Num(num) => format!("{}", num),
-        &HeapNode::Primitive(ref primop) => format!("{:#?}", primop),
-        &HeapNode::Application{ref fn_addr, ref arg_addr} =>
+fn format_heap_node(heap: &Heap, addr: &Addr) -> String {
+
+
+    let mut collection = HashSet::new();
+    collect_addrs_from_heap_node(heap, addr, &mut collection);
+    if collection.contains(addr) {
+        return "<<recursive defn>>".to_string();
+    }
+
+    match heap.get(addr) {
+        HeapNode::Indirection(addr) => format!("indirection({})", format_heap_node(heap, &addr)),
+        HeapNode::Num(num) => format!("{}", num),
+        HeapNode::Primitive(ref primop) => format!("{:#?}", primop),
+        HeapNode::Application{ref fn_addr, ref arg_addr} =>
             format!("({} {})",
-            format_heap_node(heap, &heap.get(fn_addr)),
-            format_heap_node(heap, &heap.get(arg_addr))),
-            &HeapNode::Supercombinator(ref sc_defn) =>  {
+            format_heap_node(heap, fn_addr),
+            format_heap_node(heap, arg_addr)),
+            HeapNode::Supercombinator(ref sc_defn) =>  {
                 let mut sc_str = String::new();
                 write!(&mut sc_str, "{}", sc_defn.name).unwrap();
                 sc_str
             }
-        &HeapNode::Data{tag: DataTag::TagTrue, ..} => {
+        HeapNode::Data{tag: DataTag::TagTrue, ..} => {
             format!("True")
         }
-        &HeapNode::Data{tag: DataTag::TagFalse, ..} => {
+        HeapNode::Data{tag: DataTag::TagFalse, ..} => {
             format!("False")
         }
-        &HeapNode::Data{tag: DataTag::TagPair, ref component_addrs} => {
-            let left = heap.get(component_addrs
+        HeapNode::Data{tag: DataTag::TagPair, ref component_addrs} => {
+            let left_addr = component_addrs
                                 .get(0)
-                                .expect("left component of tuple expected"));
-            let right = heap.get(component_addrs
+                                .expect("left component of tuple expected");
+            let right_addr = component_addrs
                                  .get(1)
-                                 .expect("right component of tuple expected"));
+                                 .expect("right component of tuple expected");
             format!("({}, {})",
-            format_heap_node(heap, &left),
-            format_heap_node(heap, &right))
+            format_heap_node(heap, &left_addr),
+            format_heap_node(heap, &right_addr))
         }
-        &HeapNode::Data{tag: DataTag::TagListNil, ..} => {
+        HeapNode::Data{tag: DataTag::TagListNil, ..} => {
             format!("[]")
         }
-        &HeapNode::Data{tag: DataTag::TagListCons, ref component_addrs} => {
-            let left = heap.get(component_addrs
+        HeapNode::Data{tag: DataTag::TagListCons, ref component_addrs} => {
+            let left_addr = component_addrs
                                 .get(0)
                                 .expect("expected left component \
-                                        of list constructor"));
-            let right = heap.get(component_addrs
+                                        of list constructor");
+            let right_addr = component_addrs
                                  .get(1)
                                  .expect("expected right component of list\
-                                         constructor"));
+                                         constructor");
 
-            format!("{}:{}", format_heap_node(heap, &left),
-            format_heap_node(heap, &right))
+            format!("{}:{}", format_heap_node(heap, &left_addr),
+            format_heap_node(heap, &right_addr))
 
         }
     }
 }
 
-fn collect_addrs_from_heap_node(heap: &Heap, node: &HeapNode, collection: &mut HashSet<Addr>) {
-    match node {
-        &HeapNode::Indirection(ref addr) => {
+//TODO: change to take Addr for node, instead od HeapNode directl
+fn collect_addrs_from_heap_node(heap: &Heap, addr: &Addr, collection: &mut HashSet<Addr>) {
+    if collection.contains(addr) {
+        return;
+    }
+
+    match heap.get(addr) {
+        HeapNode::Indirection(ref addr) => {
             collection.insert(*addr);
-            collect_addrs_from_heap_node(heap, &heap.get(addr), collection);
+            collect_addrs_from_heap_node(heap, addr, collection);
         }
-        &HeapNode::Application{ref fn_addr, ref arg_addr} => {
+        HeapNode::Application{ref fn_addr, ref arg_addr} => {
             collection.insert(*fn_addr);
             collection.insert(*arg_addr);
-            collect_addrs_from_heap_node(heap, &heap.get(fn_addr), collection);
-            collect_addrs_from_heap_node(heap, &heap.get(arg_addr), collection);
+            collect_addrs_from_heap_node(heap, fn_addr, collection);
+            collect_addrs_from_heap_node(heap, arg_addr, collection);
         }
-        &HeapNode::Data{ref component_addrs, ..} => {
+        HeapNode::Data{ref component_addrs, ..} => {
             for addr in component_addrs.iter() {
                 collection.insert(*addr);
-                collect_addrs_from_heap_node(heap, &heap.get(addr), collection);
+                collect_addrs_from_heap_node(heap, addr, collection);
             }
         }
-        &HeapNode::Supercombinator(_) | 
-            &HeapNode::Primitive(..) |
-            &HeapNode::Num(_) => {}
+        HeapNode::Supercombinator(_) | 
+            HeapNode::Primitive(..) |
+            HeapNode::Num(_) => {}
     };
 }
 
@@ -1349,7 +1362,8 @@ fn heap_try_list_access(h: HeapNode) -> Result<ListAccess, MachineError> {
 
 pub fn machine_get_final_val(m: &Machine) -> String {
     assert!(m.is_final_state());
-    format_heap_node(&m.heap, &m.heap.get(&m.stack.peek().unwrap()))
+    format!("{:#?}", m.heap.get(&m.stack.peek().unwrap()))
+    //format_heap_node(&m.heap, &m.stack.peek().unwrap())
 }
 
 
@@ -1367,7 +1381,7 @@ fn print_stack(heap: &Heap, s: &Stack) {
             let node = heap.get(addr);
             table.add_row(row![format_addr_string(addr),
             "->",
-            format_heap_node(&heap, &node),
+            //format_heap_node(&heap, addr),
             format!("{:#?}", node)]);
 
         }
@@ -1385,35 +1399,36 @@ pub fn print_machine_stack(m: &Machine) {
 
 pub fn print_machine(m: &Machine) {
 
-    let mut addrs_in_ : HashSet<Addr> = HashSet::new();
+    let mut cur_addrs : HashSet<Addr> = HashSet::new();
     for addr in m.stack.iter() {
-        addrs_in_.insert(*addr);
-        collect_addrs_from_heap_node(&m.heap, &m.heap.get(addr), &mut addrs_in_);
+        cur_addrs.insert(*addr);
+        collect_addrs_from_heap_node(&m.heap, addr, &mut cur_addrs);
 
     }
 
     for s in m.dump.iter() {
         for addr in s.iter() {
-            collect_addrs_from_heap_node(&m.heap, &m.heap.get(addr), &mut addrs_in_);
+            collect_addrs_from_heap_node(&m.heap, addr, &mut cur_addrs);
         }
     }
 
     println!("{}", Blue.paint(format!("Stack - {} items", m.stack.len())));
+     print_stack(&m.heap, &m.stack);
 
-    print_stack(&m.heap, &m.stack);
+
+    
     println!("{}", Blue.paint(format!("Heap - {} items", m.heap.len())));
-
-    if addrs_in_.len() == 0 {
+    if cur_addrs.len() == 0 {
         println!("  Empty");
     }
     else {
         let mut table = Table::new();
-        for addr in addrs_in_.iter() {
+        for addr in cur_addrs.iter() {
 
             let node = m.heap.get(addr);
             table.add_row(row![format_addr_string(addr),
             "->",
-            format_heap_node(&m.heap, &node),
+            format_heap_node(&m.heap, addr),
             format!("{:#?}", node)]);
 
 
@@ -1422,6 +1437,7 @@ pub fn print_machine(m: &Machine) {
         table.printstd();
 
     }
+    return;
 
     println!("{}", Blue.paint("Dump"));
     if m.dump.len() == 0 {
@@ -1438,7 +1454,7 @@ pub fn print_machine(m: &Machine) {
     let globals_in_use = {
         let mut globals = Vec::new();
         for (name, addr) in m.globals.iter() {
-            if addrs_in_.contains(addr) {
+            if cur_addrs.contains(addr) {
                 globals.push((name, addr));
             }
         }
