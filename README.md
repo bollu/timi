@@ -132,87 +132,87 @@ Expressions can be one of the given alternatives. Note that `lambda` and
 `case` are missing, since they are difficult to implement in this style of
 machine. More is talked about this in the section [#Lack of Lambda and Case](#lack-of-lambda-and-case).
 
- - **Let**
+    - **Let**
 
-    ```haskell
-    let <...bindings...> in <expr>
-    ```
+        ```haskell
+        let <...bindings...> in <expr>
+        ```
 
-    Let bindings can be recursive and can refer to each other
+        Let bindings can be recursive and can refer to each other
 
- - **Function application**
+    - **Function application**
 
-    ```haskell
-    function <args>
-    ```
+        ```haskell
+        function <args>
+        ```
 
-    Like Haskell's function application. The `<args>` are primitive values or
-    variables.
-    
-    All n-ary application are represented by nested 1-ary applications.
-    Functions are curried by default.
+        Like Haskell's function application. The `<args>` are primitive values or
+        variables.
 
-    ```haskell
-    f x y z == (((f x) y) z)
-    ```
+        All n-ary application are represented by nested 1-ary applications.
+        Functions are curried by default.
 
-
- - **Data Declaration**
-
-    ```haskell
-    Pack{<tag>, <arity>}
-    ```
-
-    The `Pack` primitive operation takes a tag and an arity. When used, it packages
-    up an `arity` number of expressions into a single object and tags it with `tag`.
-
-    For example,
-    
-    ```haskell
-    False = Pack{0, 0}
-    True = Pack{1, 0}
-    ```
-    
-    `True` and `False` are represented as `1` tagged and `0` tagged objects that
-    have arity `0`.
-
-    ```haskell
-    MkPair = Pack{2, 2}
-    my_tuple = MkPair 42 -42
-    ```
-
-    `MkPair`, a function used to create tuples uses a tag of `2` and requires two
-    arguments. `my_tuple` is now a data node that holds the values `42` and `-42`.
-
-    **NOTE:** using custom tags will not be very beneficial since the language does
-    not have `case` expressions. Rather, `List` and `Tuple` are created as language
-    inbuilts with custom de-structuring functions called `caseList` and `casePair`
-    respectively.
+        ```haskell
+        f x y z == (((f x) y) z)
+        ```
 
 
- - **Primitive application**
+    - **Data Declaration**
 
-    ```haskell
-    <arg1> primop <arg2>
-    ```
+        ```haskell
+        Pack{<tag>, <arity>}
+        ```
 
-    Primitive operation on integers.
+        The `Pack` primitive operation takes a tag and an arity. When used, it packages
+        up an `arity` number of expressions into a single object and tags it with `tag`.
 
-    The following operations are supported:
+        For example,
 
-      - Arithmetic
-        - `+`: addition
-        - `-`: subtraction
-        - `*`: multiplication
-        - `/`: integer division
+        ```haskell
+        False = Pack{0, 0}
+        True = Pack{1, 0}
+        ```
 
-      - Boolean, returning `True` (`Pack{1, 0}`) for truth and `False` (`Pack{0, 0}`)
-        for falsehood:
-        `<`, `<=`, `==`, `/=`, `>=`, `>`
+        `True` and `False` are represented as `1` tagged and `0` tagged objects that
+        have arity `0`.
+
+        ```haskell
+        MkPair = Pack{2, 2}
+        my_tuple = MkPair 42 -42
+        ```
+
+        `MkPair`, a function used to create tuples uses a tag of `2` and requires two
+        arguments. `my_tuple` is now a data node that holds the values `42` and `-42`.
+
+        **NOTE:** using custom tags will not be very beneficial since the language does
+        not have `case` expressions. Rather, `List` and `Tuple` are created as language
+        inbuilts with custom de-structuring functions called `caseList` and `casePair`
+        respectively.
+
+
+    - **Primitive application**
+
+        ```haskell
+        <arg1> primop <arg2>
+        ```
+
+        Primitive operation on integers.
+
+        The following operations are supported:
+
+          - Arithmetic
+            - `+`: addition
+            - `-`: subtraction
+            - `*`: multiplication
+            - `/`: integer division
+
+          - Boolean, returning `True` (`Pack{1, 0}`) for truth and `False` (`Pack{0, 0}`)
+            for falsehood:
+            `<`, `<=`, `==`, `/=`, `>=`, `>`
 
     - **Primitive literal**
         An integer declaration.
-    
+
     - **Booleans**
         ```
         True = Pack{1, 0}
@@ -264,8 +264,6 @@ machine. More is talked about this in the section [#Lack of Lambda and Case](#la
 The language does not have `lambda` and `case` to keep the code simple, and
 as close to the source material as possible. 
 
-
-#### Code Examples
 
 ## Runtime
 
@@ -321,8 +319,7 @@ K x y = x
 ```
 (these are the `S` and `K` combinators from lambda calculus)
 
-Now, let us understand how the program `S K K 3` evaluates. We have included
-a trace of the program to explain how it works.
+Now, let us understand how the program `S K K 3` evaluates.
 
 ```
 *** ITERATION: 1
@@ -332,6 +329,10 @@ Stack - 1 items
 ## bottom ##
 ...
 ===///===
+```
+Initially, the code that we want to run `(((S K) K) 3)` is on the top of the stack.
+
+```haskell
 *** ITERATION: 2
 Stack - 2 items
 ## top ##
@@ -340,6 +341,17 @@ Stack - 2 items
 ## bottom ##
 ...
 ===///===
+```
+Remember that all application is always curried. That is `(((S K) K) 3)` is thought of
+as `(((S K) K)` applied on `3`.
+
+
+The LHS of the function application `((S K) K)`
+is pushed on top of the current stack. This continues to happen till we are left
+with just a supercombinator on the top of the stack.
+
+
+```haskell
 *** ITERATION: 3
 Stack - 3 items
 ## top ##
@@ -365,75 +377,13 @@ Heap - 34 items
  0x20  ->  3              H-Num(3)
  0x21  ->  (((S K) K) 3)  H-Ap(0x1F $ 0x20)
 ===///===
-*** ITERATION: 5
-Stack - 1 items
-## top ##
- 0x24  ->  ((K 3) (K 3))  H-Ap(0x22 $ 0x23)
-## bottom ##
-Heap - 37 items
- 0x24  ->  ((K 3) (K 3))  H-Ap(0x22 $ 0x23)
- 0x1   ->  K              H-Supercombinator(K x y = { x })
- 0x20  ->  3              H-Num(3)
- 0x23  ->  (K 3)          H-Ap(0x1 $ 0x20)
- 0x22  ->  (K 3)          H-Ap(0x1 $ 0x20)
- ...
- ===///===
-*** ITERATION: 6
-Stack - 2 items
-## top ##
- 0x22  ->  (K 3)          H-Ap(0x1 $ 0x20)
- 0x24  ->  ((K 3) (K 3))  H-Ap(0x22 $ 0x23)
-## bottom ##
-...
-===///===
-*** ITERATION: 7
-Stack - 3 items
-## top ##
- 0x1   ->  K              H-Supercombinator(K x y = { x })
- 0x22  ->  (K 3)          H-Ap(0x1 $ 0x20)
- 0x24  ->  ((K 3) (K 3))  H-Ap(0x22 $ 0x23)
-## bottom ##
-...
-===///===
-*** ITERATION: 8
-Stack - 1 items
-## top ##
- 0x20  ->  3  H-Num(3)
-## bottom ##
-...
-===///===
-=== FINAL: "3" ===
->
 ```
 
-#### Function application
+Look at the current state of the stack.
+T he left argument of the application keeps getting pushed onto the stack. 
+This continues till there is a supercombinator on the top of the stack.
 
-
-Look at **iteration 4**. The stack looks like so:
-
-```
-*** ITERATION: 4
-Stack - 4 items
-## top ##
- 0x3   ->  S              H-Supercombinator(S f g x = { ((f $ x) $ (g $ x)) })
- 0x1E  ->  (S K)          H-Ap(0x3 $ 0x1)
- 0x1F  ->  ((S K) K)      H-Ap(0x1E $ 0x1)
- 0x21  ->  (((S K) K) 3)  H-Ap(0x1F $ 0x20)
-## bottom ##
-Heap - 34 items
- 0x1F  ->  ((S K) K)      H-Ap(0x1E $ 0x1)
- 0x1E  ->  (S K)          H-Ap(0x3 $ 0x1)
- 0x1   ->  K              H-Supercombinator(K x y = { x })
- 0x3   ->  S              H-Supercombinator(S f g x = { ((f $ x) $ (g $ x)) })
- 0x20  ->  3              H-Num(3)
- 0x21  ->  (((S K) K) 3)  H-Ap(0x1F $ 0x20)
-===///===
-```
-
-As evaluation proceeds, the "spine of the expression" is pushed the stack.
-That is, the left argument of the application keeps getting pushed onto the stack,
-till there is only a supercombinator left on the top of the stack.
-
+This process is called as *unwinding the spine* of the function call.
 
 #### Instantiation
 Now that a supercombinator (`S`) is on the top of the stack, we need to actually
@@ -446,7 +396,7 @@ apply it by passing the arguments. At this stage, the "spine is unwound".
     - The argument of the 2nd application (`(S K) K` at `0x1F`) becomes `g`
     - The argument of the 3rd application (`((S K) K ) 3)` at `0x21`) becomes `3`
 
-So, summarizing the current stage: 
+So, summarizing the current stage:
 - `S`: supercombinator to unwind
 - `K`: first parameter, `f`
 - `K`: second parameter, `g`
@@ -456,7 +406,7 @@ So, summarizing the current stage:
 Next, in **iteration 5** we push onto an empty stack the
 body of the supercombinator, with variables replaced.
 
-```
+```haskell
 *** ITERATION: 5
 Stack - 1 items
 ## top ##
@@ -494,7 +444,7 @@ Hence, we can state that:
 
 this is true because of the way in which application is unwound:
 
-```
+```haskell
 *** ITERATION: 7
 Stack - 3 items
 ## top ##
