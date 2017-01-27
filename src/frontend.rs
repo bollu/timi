@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use std::cmp; //for max
 use ir::*;
 use std::str;
-use std::ops::Deref;
 
 /// represents a Point in a file
 #[derive(Debug, Clone, Copy)]
@@ -42,19 +41,10 @@ struct Range {
     end: Point,
 }
 
-impl Range {
-    fn new(start: Point, end: Point) -> Range {
-        Range {
-            start: start,
-            end: end,
-        }
-    }
-}
-
 
 pub enum ParseErrorKind {
     EOF(String),
-    UnexpectedToken{ expected: Vec<CoreToken>, found: CoreToken },
+    UnexpectedToken{ expected: Vec<CoreToken>, found: CoreToken, error: String },
     Generic(String)
 }
 
@@ -64,11 +54,11 @@ impl fmt::Debug for ParseErrorKind {
             &ParseErrorKind::EOF(ref s) => {
                 write!(fmt, "EOF reached: {}", s)
             }
-            &ParseErrorKind::UnexpectedToken{ref expected, ref found} => {
-                write!(fmt, "expected one of {:#?}, \
-                       found: |{:#?}|",
-                       expected,
-                       found)
+            &ParseErrorKind::UnexpectedToken{ref expected, ref found, ref error} => {
+                write!(fmt, "expected one of {:#?}\n\
+                       found: {:#?}\n\
+                       error: {}",
+                       expected, found, error)
             }
             &ParseErrorKind::Generic(ref range) => write!(fmt, "{:#?}", range)
         }
@@ -81,11 +71,6 @@ pub struct ParseError(Range, ParseErrorKind);
 impl ParseError {
     fn generic<T>(range: Range, s: String) -> Result<T, ParseError> {
         ParseError(range, ParseErrorKind::Generic(s)).into()
-    }
-
-
-    fn eof<T>(range: Range, s: String) -> Result<T, ParseError> {
-        ParseError(range, ParseErrorKind::EOF(s)).into()
     }
 
 }
@@ -176,13 +161,15 @@ impl ParserCursor {
                             "was expecting {:#?}, found EOF\n{}", t, error))).into(),
             (range, Some(tok)) => {
                 if tok == t {
-                    try!(self.consume(&format!("consuming {:#?}", t)));
+                    self.cur_range = range;
+                    self.pos += 1; 
                     Result::Ok(())
                 }
                 else {
                     return ParseError(range, ParseErrorKind::UnexpectedToken{
                         expected: vec![t],
-                        found: tok
+                        found: tok,
+                        error: error.to_string()
                     }).into()
                 }
             }
@@ -203,7 +190,7 @@ impl TokenizerCursor {
     fn new(program: String) -> TokenizerCursor {
         TokenizerCursor {
             program: program.chars().collect(),
-            line: 0,
+            line: 1,
             col: 0,
             i: 0
         }
@@ -251,8 +238,11 @@ impl TokenizerCursor {
         for l in (1..length_to_take+1).rev() {
             let possible_match : String = self.program[self.i..self.i + l].iter().cloned().collect();
             if matches.contains(&possible_match.as_str()) {
-                longest_match = Some(possible_match);
-                self.i += l;
+                longest_match = Some(possible_match.clone());
+
+                for _ in 0..l {
+                    try!(self.consume(&format!("consuming matching token: {}", possible_match)));
+                }
                 break;
             }
         }
@@ -301,6 +291,7 @@ impl TokenizerCursor {
             Some((_, c)) => c.clone(),
             None => return ParseError::generic(self.point().as_range(), error.to_string())
         };
+    
         self.i += 1;
         self.col += 1;
 
@@ -411,7 +402,7 @@ fn tokenize(program: String) -> Result<Vec<(Range, CoreToken)>, ParseError> {
             id_string.push(peek);
 
             try!(cursor.consume("consuming alphabet token"));
-            let &(mut range, ref consumed_string) = &cursor.consume_while(|_, c| is_ident_char(c), "consuming identifier string");
+            let &(mut range, _) = &cursor.consume_while(|_, c| is_ident_char(c), "consuming identifier string");
             range.start = start;
 
             tokens.push((range, identifier_str_to_token(&id_string)));
@@ -446,11 +437,11 @@ fn parse_string_as_int(range: Range, num_str: String) -> Result<i32, ParseError>
 
 //does this token allow us to start to parse an
 //atomic expression?
-fn is_token_atomic_expr_start(t: CoreToken) -> bool {
+fn is_token_atomic_expr_start(t: &CoreToken) -> bool {
     match t {
-        CoreToken::Integer(_) => true,
-        CoreToken::Ident(_) => true,
-        CoreToken::OpenRoundBracket => true,
+        &CoreToken::Integer(_) => true,
+        &CoreToken::Ident(_) => true,
+        &CoreToken::OpenRoundBracket => true,
         _ => false
     }
 
@@ -462,7 +453,6 @@ Result<CoreExpr, ParseError> {
     match try!(c.consume("parsing atomic expression")) {
         (range, CoreToken::Integer(num_str)) => {
             let num = try!(parse_string_as_int(range, num_str));
-
             Result::Ok(CoreExpr::Num(num))
         },
         (_, CoreToken::Ident(ident)) => {
@@ -489,13 +479,11 @@ Result<(CoreVariable, Box<CoreExpr>), ParseError> {
 
     match try!(c.consume("looking for <ident> when parsing definition")) {
         (_, CoreToken::Ident(name)) => {
-            try!(c.expect(CoreToken::Assignment, grammar));
-
             let rhs : CoreExpr = try!(parse_expr(&mut c));
             Result::Ok((name, Box::new(rhs)))
         }
         (range, other) =>  {
-            return  ParseError::generic(range, grammar.to_string())
+            return  ParseError::generic(range, format!("expected <ident> when parsing defn, found {:#?}", other))
         }
     }
 }
@@ -575,25 +563,28 @@ fn parse_application(mut cursor: &mut ParserCursor) ->
 Result<CoreExpr, ParseError> {
     let mut application_vec : Vec<CoreExpr> = Vec::new();
     loop {
-        let (range, c) = cursor.peek();
 
         //we have a "pack" expression
-        match c {
-            Some(CoreToken::Pack) => {
+        match cursor.peek() {
+            (_, Some(CoreToken::Pack)) => {
                 let pack_expr = try!(parse_pack(&mut cursor));
                 application_vec.push(pack_expr);
 
             }
-            Some(other) => {
-                if is_token_atomic_expr_start(other) {
-
+            (_, Some(other)) => {
+                if is_token_atomic_expr_start(&other) {
                     let atomic_expr = try!(parse_atomic_expr(&mut cursor));
                     application_vec.push(atomic_expr);
+                }
+                else {
+                    break;
                 }
             }
             _ => break
         };
     }
+
+    println!("application_vec: {:#?}", application_vec);
     if application_vec.len() == 0 {
         return ParseError::generic(cursor.cur_range,
                 concat!("wanted function application or atomic expr ",
@@ -602,7 +593,7 @@ Result<CoreExpr, ParseError> {
     }
     else if application_vec.len() == 1 {
         //just an atomic expr
-        Result::Ok(application_vec.remove(0))
+        return Result::Ok(application_vec.remove(0))
     }
     else {
 
@@ -631,9 +622,10 @@ fn parse_binop_at_precedence(mut cursor: &mut ParserCursor,
 
     let lhs_expr : CoreExpr = try!(lhs_parse_fn(&mut cursor));
 
-    let keys_vec : Vec<CoreToken> = variable_bindings.keys().cloned().collect();
-    let (_, c) = try!(cursor.consume(&format!("parsing binary operators {:#?}",
-                                              keys_vec)));
+    let c = match cursor.peek() {
+        (_, None) => return Result::Ok(lhs_expr),
+        (_, Some(c)) => c
+    };
 
     let (rhs_expr, operator_variable) = {
         if let Some(&CoreExpr::Variable(ref op_str)) = variable_bindings.get(&c) {
@@ -728,8 +720,8 @@ Result<CoreExpr, ParseError> {
 fn parse_supercombinator(mut c: &mut ParserCursor) ->
 Result<SupercombDefn, ParseError> {
 
-    let (start_range, sc_name) = match try!(c.consume("parsing supercombinator, looking for name")) {
-        (start_range, CoreToken::Ident(name)) => (start_range, name),
+    let sc_name = match try!(c.consume("parsing supercombinator, looking for name")) {
+        (_, CoreToken::Ident(name)) => name,
         (range, other)=> return ParseError::generic(range, format!(
                         "super combinator name expected, {:#?} encountered",
                         other))
@@ -753,8 +745,7 @@ Result<SupercombDefn, ParseError> {
         }
     }
 
-    //take the equals
-    try!(c.expect(CoreToken::Assignment, "parsing supercombinator"));
+    println!("calling parse_expr...");
     let sc_body = try!(parse_expr(&mut c));
 
     Result::Ok(SupercombDefn{
@@ -767,6 +758,7 @@ Result<SupercombDefn, ParseError> {
 
 pub fn string_to_expr(string : String) -> Result<CoreExpr, ParseError> {
     let tokens : Vec<(Range, CoreToken)> = try!(tokenize(string));
+    println!("tokens: {:#?}", tokens);
     let mut cursor: ParserCursor = ParserCursor::new(tokens);
 
     parse_expr(&mut cursor)
@@ -774,6 +766,7 @@ pub fn string_to_expr(string : String) -> Result<CoreExpr, ParseError> {
 
 pub fn string_to_sc_defn(string: String) -> Result<SupercombDefn, ParseError> {
     let tokens : Vec<(Range, CoreToken)> = try!(tokenize(string));
+    println!("tokens: {:#?}", tokens);
     let mut cursor: ParserCursor = ParserCursor::new(tokens);
     parse_supercombinator(&mut cursor)    
 }

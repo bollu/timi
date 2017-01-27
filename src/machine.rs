@@ -409,20 +409,21 @@ fn bool_to_heap_node(b: bool) -> HeapNode {
 
 
 fn get_prelude() -> CoreProgram {
-    frontend::string_to_program("I x = x;\
-                                K x y = x;\
-                                K1 x y = y;\
-                                S f g x = f x (g x);\
-                                compose f g x = f (g x);\
-                                twice f = compose f f;\
-                                False = Pack{0, 0};\
-                                True = Pack{1, 0};\
-                                MkPair = Pack{2, 2};\
-                                Nil = Pack{3, 0};\
-                                Cons = Pack{4, 2};\
-                                Y f = f (Y f);\
-                                facrec f n = if (n == 0) 1 (n * f (n - 1));\
-                                fac n = (Y facrec) n\
+
+    frontend::string_to_program("I x = x;\n\
+                                K x y = x;\n\
+                                K1 x y = y;\n\
+                                S f g x = f x (g x);\n\
+                                compose f g x = f (g x);\n\
+                                twice f = compose f f;\n\
+                                False = Pack{0, 0};\n\
+                                True = Pack{1, 0};\n\
+                                MkPair = Pack{2, 2};\n\
+                                Nil = Pack{3, 0};\n\
+                                Cons = Pack{4, 2};\n\
+                                Y f = f (Y f);\n\
+                                facrec f n = if (n == 0) 1 (n * f (n - 1));\n\
+                                fac n = (Y facrec) n\n\
                                 ".to_string()).unwrap()
 }
 
