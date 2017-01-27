@@ -1437,7 +1437,6 @@ pub fn print_machine(m: &Machine) {
         table.printstd();
 
     }
-    return;
 
     println!("{}", Blue.paint("Dump"));
     if m.dump.len() == 0 {

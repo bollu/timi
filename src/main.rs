@@ -70,7 +70,7 @@ fn run_machine<C>(rl: &mut Editor<C>, m: &mut Machine, pause_per_step: &mut bool
 
         print_machine(&m);
         if m.is_final_state() {
-            println!("=== FINAL: {:#?} ===", machine_get_final_val(&m));
+            println!("=== FINAL: {} ===", machine_get_final_val(&m));
             break;
         }
 

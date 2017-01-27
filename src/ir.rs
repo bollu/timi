@@ -9,7 +9,6 @@ pub type CoreVariable = Name;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct CoreLet {
-    pub is_rec: bool,
     pub bindings: Vec<(Name, Box<CoreExpr>)>,
     pub expr: Box<CoreExpr>
 }
@@ -32,13 +31,9 @@ impl fmt::Debug for CoreExpr {
             &CoreExpr::Variable(ref name) => write!(fmt, "{}", name),
             &CoreExpr::Num(ref num) => write!(fmt, "n_{}", num),
             &CoreExpr::Application(ref e1, ref e2) =>
-            write!(fmt, "({:#?} $ {:#?})", *e1, *e2),
-            &CoreExpr::Let(CoreLet{ref is_rec, ref bindings, ref expr}) => {
-                if *is_rec {
-                    try!(write!(fmt, "letrec"));
-                } else {
-                    try!(write!(fmt, "let"));
-                }
+                write!(fmt, "({:#?} $ {:#?})", *e1, *e2),
+            &CoreExpr::Let(CoreLet{ref bindings, ref expr}) => {
+                try!(write!(fmt, "let"));
                 try!(write!(fmt, " {{\n"));
                 for &(ref name, ref expr) in bindings {
                     try!(write!(fmt, "{} = {:#?}\n", name, expr));

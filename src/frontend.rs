@@ -4,12 +4,11 @@ extern crate rand;
 use std::fmt;
 use std::collections::HashMap;
 use std::cmp; //for max
-
 use ir::*;
 
 
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ParseError {
     NoTokens,
         UnexpectedToken {
@@ -20,7 +19,7 @@ pub enum ParseError {
 
 }
 
-impl fmt::Debug for ParseError {
+impl fmt::Display for ParseError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
             &ParseError::NoTokens => {
@@ -35,38 +34,52 @@ impl fmt::Debug for ParseError {
     }
 }
 
+impl<T> Into<Result<T, ParseError>> for ParseError {
+    fn into(self) -> Result<T, ParseError> {
+        Result::Err(self)
+    }
+
+}
+
+
+/*
+struct DebugInfo<'a, T> {
+    col: usize,
+    line: usize,
+    value: T,
+    raw_program: &'a Vec<char>
+}*/
 
 
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub enum CoreToken {
     Let,
-        LetRec,
-        In,
-        Ident(String),
-        Assignment,
-        Semicolon,
-        OpenRoundBracket,
-        CloseRoundBracket,
-        OpenCurlyBracket,
-        CloseCurlyBracket,
-        Comma,
-        Integer(String),
-        Or,
-        And,
-        L,
-        LEQ,
-        G,
-        GEQ,
-        EQ,
-        NEQ,
-        Plus,
-        Minus,
-        Mul,
-        Div,
-        Pack,
-        //when you call peek(), it returns this token
-        //if the token stream is empty.
-        PeekNoToken
+    In,
+    Ident(String),
+    Assignment,
+    Semicolon,
+    OpenRoundBracket,
+    CloseRoundBracket,
+    OpenCurlyBracket,
+    CloseCurlyBracket,
+    Comma,
+    Integer(String),
+    Or,
+    And,
+    L,
+    LEQ,
+    G,
+    GEQ,
+    EQ,
+    NEQ,
+    Plus,
+    Minus,
+    Mul,
+    Div,
+    Pack,
+    //when you call peek(), it returns this token
+    //if the token stream is empty.
+    PeekNoToken
 }
 
 #[derive(Clone)]
@@ -94,7 +107,7 @@ impl ParserCursor {
 
     fn consume(&mut self) -> Result<CoreToken, ParseError> {
         match self.peek() {
-            CoreToken::PeekNoToken => Result::Err(ParseError::NoTokens),
+            CoreToken::PeekNoToken => ParseError::NoTokens.into(),
             other @ _ => {
                 self.pos += 1;
                 Result::Ok(other)
@@ -118,10 +131,114 @@ impl ParserCursor {
     }
 }
 
+
+
+struct TokenizerCursor {
+    program: Vec<char>,
+    line: usize,
+    col: usize,
+    i: usize
+}
+
+impl TokenizerCursor {
+    fn new(program: String) -> TokenizerCursor {
+        TokenizerCursor {
+            program: program.chars().collect(),
+            line: 0,
+            col: 0,
+            i: 0
+        }
+    }
+
+    fn peek(&self) -> Option<&char> {
+        self.program.get(self.i)
+    }
+
+
+    fn consume_longest_match(&mut self, matches: Vec<&str>) -> Result<String, ParseError> {
+
+        let longest_len = matches.iter()
+        .map(|s| s.len())
+        .fold(0, cmp::max);
+
+
+        //take only enough to not cause an out of bounds error
+        let length_to_take = cmp::min(longest_len,
+                                      self.program.len() - self.i);
+
+        //take all lengths, starting from longest,
+        //ending at shortest
+        let mut longest_match : Option<String> = None;
+
+        for l in (1..length_to_take+1).rev() {
+            let possible_match : String = self.program[self.i..self.i + l].iter().cloned().collect();
+            if matches.contains(&possible_match.as_str()) {
+                longest_match = Some(possible_match);
+                self.i += l;
+                break;
+            }
+        }
+
+        //longest operator is tokenized
+        match longest_match {
+            Some(m) => Result::Ok(m),
+            None => {
+                ParseError::ErrorStr(format!(
+                 "expected one of {:#?}, found none to match", matches)).into()
+            }
+        }
+
+    }
+
+    /// Consumes from the character stream as long as `pred` returns true.
+    ///
+    /// `pred` is given the string consumed so far and the current character. It
+    /// is expected to return whether the current character should be consumed
+    /// or not. 
+    /// NOTE: on finding `EOF`, this returns whatever has been consumed so far
+    fn consume_while<F>(&mut self, pred: F) -> String
+    where F: Fn(&String, &char) -> bool {
+        let mut accum = String::new();
+        loop {
+            let c = match self.peek() {
+                Some(c) => c.clone(),
+                None => return accum
+            };
+            
+            if pred(&accum, &c) {
+                let _ = self.consume();
+                accum.push(c.clone());
+            }
+            else {
+                break;
+            }
+        }
+        accum
+    }
+
+
+    fn consume(&mut self) -> Result<(), ParseError> {
+        let c = match self.peek() {
+            Some(c) => c.clone(),
+            None => return Result::Err(ParseError::ErrorStr("unexpected EOF when tokenising".to_string()))
+        };
+        self.i += 1;
+        self.col += 1;
+
+        if c == '\n' {
+            self.col = 0;
+            self.line += 1;
+        };
+
+        Result::Ok(())
+    }
+
+
+}
+
 fn identifier_str_to_token(token_str: &str) -> CoreToken {
     match token_str {
         "let" => CoreToken::Let,
-        "letrec" => CoreToken::LetRec,
         "in" => CoreToken::In,
         "Pack" => CoreToken::Pack,
         other @ _ => CoreToken::Ident(other.to_string())
@@ -129,26 +246,13 @@ fn identifier_str_to_token(token_str: &str) -> CoreToken {
 }
 
 
-fn is_char_space(c: char) -> bool {
-    c == ' ' || c == '\n' || c == '\t'
+fn is_char_space(c: &char) -> bool {
+    *c == ' ' || *c == '\n' || *c == '\t'
 }
 
-fn is_char_symbol(c: char) -> bool {
-    !c.is_alphabetic() && !c.is_numeric()
-}
 
-fn tokenize_symbol(char_arr: Vec<char>, i: usize) -> 
-Result<(CoreToken, usize), ParseError> {
+fn tokenize_symbol(cursor: &mut TokenizerCursor) -> Result<CoreToken, ParseError> {
 
-
-    let c = match char_arr.get(i) {
-        Some(c) => c.clone(),
-        None => return 
-            Result::Err(ParseError::ErrorStr(format!(
-                        "unable to get value out of: {} from: {:?}", i, char_arr)))
-    };
-    assert!(is_char_symbol(c),
-            format!("{} is not charcter, digit or symbol", c));
 
     let symbol_token_map: HashMap<&str, CoreToken> =
         [("=", CoreToken::Assignment),
@@ -178,118 +282,71 @@ Result<(CoreToken, usize), ParseError> {
         .iter().cloned().collect();
 
 
-    let longest_op_len = symbol_token_map
-        .keys()
-        .map(|s| s.len())
-        .fold(0, cmp::max);
+    let keys : Vec<&str> = symbol_token_map.clone()
+                                .keys()
+                                .map(|&s| s.clone())
+                                .collect();
+    let op_str = try!(cursor.consume_longest_match(keys));
 
-
-    //take only enough to not cause an out of bounds error
-    let length_to_take = cmp::min(longest_op_len,
-                                  char_arr.len() - i);
-
-    //take all lengths, starting from longest,
-    //ending at shortest
-    let mut longest_op_opt : Option<CoreToken> = None;
-    let mut longest_taken_length = 0;
-
-    for l in (1..length_to_take+1).rev() {
-        let op_str : &String = &char_arr[i..i + l]
-            .iter()
-            .cloned()
-            .collect();
-
-        if let Some(tok) = symbol_token_map.get(&op_str.as_str()) {
-            //we found a token, break
-            longest_taken_length = l;
-            longest_op_opt = Some(tok.clone());
-            break;
-        }
-    }
-
-    //longest operator is tokenised
-    let longest_op : CoreToken = match longest_op_opt {
-        Some(op) => op,
-        None => {
-            let symbol = &char_arr[i..i + length_to_take];
-            return Result::Err(ParseError::ErrorStr(format!(
-                        "unknown symbol {:?}", symbol)))
-        }
-    };
-
-    Result::Ok((longest_op, longest_taken_length))
-        //tokens.push(longest_op);
-        //i += longest_taken_length;
+    let tok = symbol_token_map
+                    .get(&op_str.as_str())
+                    .expect(&format!("expected symbol for string: {}", op_str));
+    Result::Ok(tok.clone())
 }
 
+fn eat_whitespace(cursor: &mut TokenizerCursor) {
+    cursor.consume_while(|_, c| is_char_space(c));
+}
+
+
+fn is_ident_char(c: &char) -> bool {
+    c.is_alphanumeric() || *c == '?' || *c == '-' || *c == '_'
+}
+ 
 
 
 fn tokenize(program: String) -> Result<Vec<CoreToken>, ParseError> {
 
     //let char_arr : &[u8] = program.as_bytes();
-    let char_arr : Vec<char> = program.clone().chars().collect();
-    let mut i = 0;
+    //let char_arr : Vec<char> = program.clone().chars().collect();
+    let mut cursor = TokenizerCursor::new(program);
 
     let mut tokens = Vec::new();
 
     loop {
-        //break out if we have exhausted the loop
-        if char_arr.get(i) == None {
-            break;
-        }
-
         //consume spaces
-        while let Some(&c) = char_arr.get(i) {
-            if !is_char_space(c) {
-                break;
-            }
-            i += 1;
+        eat_whitespace(&mut cursor);
+
+        //break out if we have exhausted the loop
+        let peek = match cursor.peek() {
+            None => break,
+            Some(&c) => c
+        };
+
+
+        //alphabet: parse literal
+        if peek.is_alphabetic() {
+
+            //get the identifier name
+            let mut id_string = String::new();
+            id_string.push(peek);
+
+            try!(cursor.consume());
+            id_string += &cursor.consume_while(|_, c| is_ident_char(c));
+
+            tokens.push(identifier_str_to_token(&id_string));
         }
+        else if peek.is_numeric() {
+            //parse the number
+            //TODO: take care of floats
+            let num_string = cursor.consume_while(|_, c| c.is_numeric());
+            tokens.push(CoreToken::Integer(num_string));
 
-        //we have a character
-        if let Some(& c) = char_arr.get(i) {
-            //alphabet: parse literal
-            if c.is_alphabetic() {
-
-                //get the identifier name
-                let mut id_string = String::new();
-
-                while let Some(&c) = char_arr.get(i) {
-                    if c.is_alphanumeric() {
-                        id_string.push(c);
-                        i += 1;
-                    } else {
-                        break;
-                    }
-                }
-
-                tokens.push(identifier_str_to_token(&id_string));
-            }
-            else if c.is_numeric() {
-                //parse the number
-                //TODO: take care of floats
-
-                let mut num_string = String::new();
-
-                while let Some(&c) = char_arr.get(i) {
-                    if c.is_numeric() {
-                        num_string.push(c);
-                        i += 1;
-                    } else {
-                        break;
-                    }
-                }
-
-                tokens.push(CoreToken::Integer(num_string));
-
-            }
-            else {
-                let (symbol, stride) = try!(tokenize_symbol(char_arr.clone(), i));
-                i += stride;
-                tokens.push(symbol);
-            }
         }
-
+        else {
+            let symbol= try!(tokenize_symbol(&mut cursor));
+            tokens.push(symbol);
+        }
     }
 
     Result::Ok(tokens)
@@ -343,7 +400,7 @@ Result<CoreExpr, ParseError> {
 
 }
 
-//defn := <variable> "=" <expr>
+//defn := <ident> "=" <expr>
 fn parse_defn(mut c: &mut ParserCursor) ->
 Result<(CoreVariable, Box<CoreExpr>), ParseError> {
 
@@ -361,12 +418,12 @@ Result<(CoreVariable, Box<CoreExpr>), ParseError> {
     }
 }
 
-//let := "let" <bindings> "in" <expr>
+//<let> := "let" <bindings> "in" <expr>
+//<bindings> := <defn> | <defn> ";" <bindings>
 fn parse_let(mut c: &mut ParserCursor) -> Result<CoreLet, ParseError> {
     //<let>
-    let let_token = match c.peek() {
+    match c.peek() {
         CoreToken::Let => try!(c.consume()),
-        CoreToken::LetRec => try!(c.consume()),
         _ => return Result::Err(ParseError::ErrorStr(format!(
                     "expected let or letrec, found {:#?}", c.peek())))
     };
@@ -379,7 +436,7 @@ fn parse_let(mut c: &mut ParserCursor) -> Result<CoreLet, ParseError> {
         bindings.push(defn);
 
         //check for ;
-        //If htere is a ;, continue parsing
+        //If there is a ;, continue parsing
         if let CoreToken::Semicolon = c.peek() {
             try!(c.consume());
             continue;
@@ -394,18 +451,7 @@ fn parse_let(mut c: &mut ParserCursor) -> Result<CoreLet, ParseError> {
     //<expr>
     let rhs_expr = try!(parse_expr(c));
 
-    let is_rec : bool = match let_token {
-        CoreToken::Let => false,
-        CoreToken::LetRec => true,
-        other @ _ =>
-            return Result::Err(ParseError::UnexpectedToken {
-                expected: vec![CoreToken::Let, CoreToken::LetRec],
-                found: other.clone()
-            })
-    };
-
     Result::Ok(CoreLet {
-        is_rec: is_rec,
         bindings: bindings,
         expr: Box::new(rhs_expr)
     })
@@ -588,7 +634,6 @@ fn parse_expr(mut c: &mut ParserCursor) ->
 Result<CoreExpr, ParseError> {
     match c.peek() {
         CoreToken::Let => parse_let(&mut c).map(|l| CoreExpr::Let(l)),
-        CoreToken::LetRec => parse_let(&mut c).map(|l| CoreExpr::Let(l)),
         _ => parse_or(&mut c)
     }
 }
