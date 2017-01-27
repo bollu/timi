@@ -291,7 +291,7 @@ impl TokenizerCursor {
             Some((_, c)) => c.clone(),
             None => return ParseError::generic(self.point().as_range(), error.to_string())
         };
-    
+
         self.i += 1;
         self.col += 1;
 
@@ -402,8 +402,10 @@ fn tokenize(program: String) -> Result<Vec<(Range, CoreToken)>, ParseError> {
             id_string.push(peek);
 
             try!(cursor.consume("consuming alphabet token"));
-            let &(mut range, _) = &cursor.consume_while(|_, c| is_ident_char(c), "consuming identifier string");
+            let &(mut range, ref consumed_str) = &cursor.consume_while(|_, c| is_ident_char(c), "consuming identifier string");
             range.start = start;
+
+            id_string += &consumed_str;
 
             tokens.push((range, identifier_str_to_token(&id_string)));
         }
@@ -475,7 +477,6 @@ Result<CoreExpr, ParseError> {
 //defn := <ident> "=" <expr>
 fn parse_defn(mut c: &mut ParserCursor) ->
 Result<(CoreVariable, Box<CoreExpr>), ParseError> {
-    let grammar = "defn := <ident> \"=\" <expr>";
 
     match try!(c.consume("looking for <ident> when parsing definition")) {
         (_, CoreToken::Ident(name)) => {
@@ -527,6 +528,7 @@ fn parse_let(mut c: &mut ParserCursor) -> Result<CoreLet, ParseError> {
 fn parse_pack(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
     let pack_grammar = "pack := Pack \"{\" tag \",\" arity \"}\"";
 
+    println!("parsing Pack...");
     try!(c.expect(CoreToken::Pack, pack_grammar));
     try!(c.expect(CoreToken::OpenCurlyBracket, pack_grammar));
 
@@ -567,11 +569,13 @@ Result<CoreExpr, ParseError> {
         //we have a "pack" expression
         match cursor.peek() {
             (_, Some(CoreToken::Pack)) => {
+                println!("parsing pack...");
                 let pack_expr = try!(parse_pack(&mut cursor));
                 application_vec.push(pack_expr);
 
             }
             (_, Some(other)) => {
+                println!("found: {:#?}", other);
                 if is_token_atomic_expr_start(&other) {
                     let atomic_expr = try!(parse_atomic_expr(&mut cursor));
                     application_vec.push(atomic_expr);
@@ -745,7 +749,6 @@ Result<SupercombDefn, ParseError> {
         }
     }
 
-    println!("calling parse_expr...");
     let sc_body = try!(parse_expr(&mut c));
 
     Result::Ok(SupercombDefn{
