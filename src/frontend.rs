@@ -60,7 +60,7 @@ impl fmt::Debug for ParseErrorKind {
                        error: {}",
                        expected, found, error)
             }
-            &ParseErrorKind::Generic(ref range) => write!(fmt, "{:#?}", range)
+            &ParseErrorKind::Generic(ref err) => write!(fmt, "{}", err)
         }
     }
 }
@@ -73,6 +73,65 @@ impl ParseError {
         ParseError(range, ParseErrorKind::Generic(s)).into()
     }
 
+    pub fn pretty_print(&self, program: &str) -> String {
+
+        let &ParseError(range, ref error_kind) = self;
+        let program_lines  : Vec<Vec<char>> = program
+                                              .split('\n')
+                                              .map(|s| s.chars().collect())
+                                              .collect();
+
+        let source_lines = {
+            if range.start.line == range.end.line {
+                ParseError::pretty_print_single_line(range.start.line,
+                                                     range.start.col,
+                                                     range.end.col, &program_lines[range.start.line])
+
+            } else {
+                ParseError::pretty_print_multiple_lines(range, &program_lines[range.start.line..range.end.line])
+     
+            }
+        };
+
+        format!("{}\n{:#?}", source_lines, error_kind)
+    }
+
+    fn get_line_number_pretty(line: usize) -> String {
+        format!("{}| ", line + 1)
+    }
+
+    fn pretty_print_single_line(line: usize, col_begin: usize, col_end: usize, line_str: &Vec<char>) -> String{
+        use std::iter;
+
+        use self::ansi_term::Colour::{Blue, Red};
+
+        let line_number_pretty = ParseError::get_line_number_pretty(line);
+
+        let error_pointer_line = iter::repeat(" ").take(line_number_pretty.chars().count() +  col_begin - 1).collect::<String>() +
+                                 "^" + 
+                                &iter::repeat("-").take(col_end - (col_begin )).collect::<String>();
+
+
+
+        let source_line = Blue.paint(line_number_pretty).to_string() +
+                          &line_str.iter().cloned().collect::<String>();
+
+
+        format!("{}\n{}", source_line, Red.paint(error_pointer_line))
+    }
+
+
+    fn pretty_print_multiple_lines(range: Range, lines_str: &[Vec<char>]) -> String{
+        let mut out = String::new();
+        for (i, line)  in lines_str.iter().enumerate() {
+            out += &ParseError::get_line_number_pretty(range.start.line + i);
+            out += &line.iter().cloned().collect::<String>();
+            out += "\n";
+
+        }
+        out
+
+    }
 }
 
 impl<T> Into<Result<T, ParseError>> for ParseError {
@@ -80,11 +139,12 @@ impl<T> Into<Result<T, ParseError>> for ParseError {
         Result::Err(self)
     }
 
+
 }
 
 
 
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum CoreToken {
     Let,
     In,
@@ -113,6 +173,38 @@ pub enum CoreToken {
     //when you call peek(), it returns this token
     //if the token stream is empty.
 }
+
+impl fmt::Debug for CoreToken {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &CoreToken::Let => write!(fmt, "let"),
+            &CoreToken::In => write!(fmt, "in"),
+            &CoreToken::Ident(ref s) => write!(fmt, "{}", s),
+            &CoreToken::Assignment => write!(fmt, "="),
+            &CoreToken::Semicolon => write!(fmt, ";"),
+            &CoreToken::OpenRoundBracket => write!(fmt, "("),
+            &CoreToken::CloseRoundBracket => write!(fmt, ")"),
+            &CoreToken::OpenCurlyBracket => write!(fmt, "{{"),
+            &CoreToken::CloseCurlyBracket => write!(fmt, "}}"),
+            &CoreToken::Comma => write!(fmt, ","),
+            &CoreToken::Integer(ref s) => write!(fmt, "{}", s),
+            &CoreToken::Or => write!(fmt, "||"),
+            &CoreToken::And => write!(fmt, "&&"),
+            &CoreToken::L => write!(fmt, "<"),
+            &CoreToken::LEQ => write!(fmt, "<="),
+            &CoreToken::G => write!(fmt, ">"),
+            &CoreToken::GEQ => write!(fmt, ">="),
+            &CoreToken::EQ => write!(fmt, "=="),
+            &CoreToken::NEQ => write!(fmt, "!="),
+            &CoreToken::Plus => write!(fmt, "+"),
+            &CoreToken::Minus => write!(fmt, "-"),
+            &CoreToken::Mul => write!(fmt, "*"),
+            &CoreToken::Div => write!(fmt, "/"),
+            &CoreToken::Pack => write!(fmt, "Pack"),
+     }
+ }
+}
+
 
 #[derive(Clone)]
 struct ParserCursor {
@@ -187,10 +279,10 @@ struct TokenizerCursor {
 }
 
 impl TokenizerCursor {
-    fn new(program: String) -> TokenizerCursor {
+    fn new(program: &str) -> TokenizerCursor {
         TokenizerCursor {
             program: program.chars().collect(),
-            line: 1,
+            line: 0,
             col: 0,
             i: 0
         }
@@ -375,7 +467,7 @@ fn is_ident_char(c: &char) -> bool {
  
 
 
-fn tokenize(program: String) -> Result<Vec<(Range, CoreToken)>, ParseError> {
+fn tokenize(program: &str) -> Result<Vec<(Range, CoreToken)>, ParseError> {
 
     let mut cursor = TokenizerCursor::new(program);
 
@@ -478,13 +570,14 @@ Result<CoreExpr, ParseError> {
 fn parse_defn(mut c: &mut ParserCursor) ->
 Result<(CoreVariable, Box<CoreExpr>), ParseError> {
 
-    match try!(c.consume("looking for <ident> when parsing definition")) {
+    match try!(c.consume("looking for identifier of let binding LHS")) {
         (_, CoreToken::Ident(name)) => {
+            try!(c.expect(CoreToken::Assignment, "expected = after name in let bindings"));
             let rhs : CoreExpr = try!(parse_expr(&mut c));
             Result::Ok((name, Box::new(rhs)))
         }
         (range, other) =>  {
-            return  ParseError::generic(range, format!("expected <ident> when parsing defn, found {:#?}", other))
+            return  ParseError::generic(range, format!("expected LHS of let binding, found {:#?}", other))
         }
     }
 }
@@ -499,6 +592,7 @@ fn parse_let(mut c: &mut ParserCursor) -> Result<CoreLet, ParseError> {
 
     //<bindings>
     loop {
+        println!("trying to parse defn...");
         let defn = try!(parse_defn(&mut c));
         bindings.push(defn);
 
@@ -528,7 +622,6 @@ fn parse_let(mut c: &mut ParserCursor) -> Result<CoreLet, ParseError> {
 fn parse_pack(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
     let pack_grammar = "pack := Pack \"{\" tag \",\" arity \"}\"";
 
-    println!("parsing Pack...");
     try!(c.expect(CoreToken::Pack, pack_grammar));
     try!(c.expect(CoreToken::OpenCurlyBracket, pack_grammar));
 
@@ -563,19 +656,18 @@ fn parse_pack(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
 //aexpr := variable | number | Pack "{" num "," num "}" | "(" expr ")" 
 fn parse_application(mut cursor: &mut ParserCursor) -> 
 Result<CoreExpr, ParseError> {
+
     let mut application_vec : Vec<CoreExpr> = Vec::new();
     loop {
 
         //we have a "pack" expression
         match cursor.peek() {
             (_, Some(CoreToken::Pack)) => {
-                println!("parsing pack...");
                 let pack_expr = try!(parse_pack(&mut cursor));
                 application_vec.push(pack_expr);
 
             }
             (_, Some(other)) => {
-                println!("found: {:#?}", other);
                 if is_token_atomic_expr_start(&other) {
                     let atomic_expr = try!(parse_atomic_expr(&mut cursor));
                     application_vec.push(atomic_expr);
@@ -588,11 +680,9 @@ Result<CoreExpr, ParseError> {
         };
     }
 
-    println!("application_vec: {:#?}", application_vec);
     if application_vec.len() == 0 {
         return ParseError::generic(cursor.cur_range,
-                concat!("wanted function application or atomic expr ",
-                        "found neither").to_string())
+                concat!("wanted function application or expression").to_string())
 
     }
     else if application_vec.len() == 1 {
@@ -759,24 +849,22 @@ Result<SupercombDefn, ParseError> {
 
 }
 
-pub fn string_to_expr(string : String) -> Result<CoreExpr, ParseError> {
+pub fn string_to_expr(string: &str) -> Result<CoreExpr, ParseError> {
     let tokens : Vec<(Range, CoreToken)> = try!(tokenize(string));
-    println!("tokens: {:#?}", tokens);
     let mut cursor: ParserCursor = ParserCursor::new(tokens);
 
     parse_expr(&mut cursor)
 }
 
-pub fn string_to_sc_defn(string: String) -> Result<SupercombDefn, ParseError> {
+pub fn string_to_sc_defn(string: &str) -> Result<SupercombDefn, ParseError> {
     let tokens : Vec<(Range, CoreToken)> = try!(tokenize(string));
-    println!("tokens: {:#?}", tokens);
     let mut cursor: ParserCursor = ParserCursor::new(tokens);
     parse_supercombinator(&mut cursor)    
 }
 
 
 
-pub fn string_to_program(string: String) -> Result<CoreProgram, ParseError> {
+pub fn string_to_program(string: &str) -> Result<CoreProgram, ParseError> {
 
     let tokens : Vec<(Range, CoreToken)> = try!(tokenize(string));
     let mut cursor: ParserCursor = ParserCursor::new(tokens);

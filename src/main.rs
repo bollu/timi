@@ -1,3 +1,4 @@
+
 #[macro_use]
 extern crate prettytable;
 extern crate rustyline;
@@ -133,10 +134,10 @@ fn main() {
         //someone is defining a binding
         if input.starts_with("define ") {
             let sc_defn_str = input.trim_left_matches("define ").to_string();
-            let sc_defn = match string_to_sc_defn(sc_defn_str) {
+            let sc_defn = match string_to_sc_defn(&sc_defn_str) {
                 Result::Ok(defn) => defn,
                 Result::Err(e) => {
-                    println!("PARSE ERROR: {:#?}", e);
+                    println!("Parse Error:\n{}", e.pretty_print(&sc_defn_str));
                     continue;
                 }
             };
@@ -144,10 +145,10 @@ fn main() {
             m.add_supercombinator(sc_defn); 
         }
         else {
-            let expr = match string_to_expr(input) {
+            let expr = match string_to_expr(&input) {
                 Result::Ok(expr) => expr,
                 Result::Err(e) => {
-                    println!("PARSE ERROR: {:#?}", e);
+                    println!("PARSE ERROR:\n{}", e.pretty_print(&input));
                     continue;
                 }
             };

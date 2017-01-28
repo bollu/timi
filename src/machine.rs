@@ -86,9 +86,9 @@ fn raw_tag_to_data_tag (raw_tag: u32) -> Result<DataTag, MachineError> {
         4 => Result::Ok(DataTag::TagListCons),
         other @ _ => Result::Err(format!(
                 "expected False(0), \
-                                         True(1), or Pair(2). \
-                                         found: {}",
-                                         other))
+                 True(1), or Pair(2). \
+                 found: {}",
+                 other))
     }
 } 
 
@@ -410,21 +410,25 @@ fn bool_to_heap_node(b: bool) -> HeapNode {
 
 fn get_prelude() -> CoreProgram {
 
-    frontend::string_to_program("I x = x;\n\
-                                K x y = x;\n\
-                                K1 x y = y;\n\
-                                S f g x = f x (g x);\n\
-                                compose f g x = f (g x);\n\
-                                twice f = compose f f;\n\
-                                False = Pack{0, 0};\n\
-                                True = Pack{1, 0};\n\
-                                MkPair = Pack{2, 2};\n\
-                                Nil = Pack{3, 0};\n\
-                                Cons = Pack{4, 2};\n\
-                                Y f = f (Y f);\n\
-                                facrec f n = if (n == 0) 1 (n * f (n - 1));\n\
-                                fac n = (Y facrec) n\n\
-                                ".to_string()).unwrap()
+    let program_str = "I x = x;\n\
+                        K x y = x;\n\
+                        K1 x y = y;\n\
+                        S f g x = f x (g x);\n\
+                        compose f g x = f (g x);\n\
+                        twice f = compose f f;\n\
+                        False = Pack{0, 0};\n\
+                        True = Pack{1, 0};\n\
+                        MkPair = Pack{2, 2};\n\
+                        Nil = Pack{3, 0};\n\
+                        Cons = Pack{4, 2};\n\
+                        Y f = f (Y f);\n\
+                        facrec f n = if (n == 0) 1 (n * f (n - 1));\n\
+                        fac n = (Y facrec) n\n\
+                        ";
+    match frontend::string_to_program(program_str) {
+        Result::Ok(program) => program,
+        Result::Err(e) => panic!("prelude compilation failed:\n{}", e.pretty_print(program_str))
+    }
 }
 
 fn get_primitives() -> Vec<(Name, MachinePrimOp)> {
@@ -868,7 +872,6 @@ fn run_primitive_negate(m: &mut Machine) -> Result<(), MachineError> {
                                 .ok_or("expected else application, was not found on stack".to_string())).clone();
 
         let cond : bool = {
-            println!("extracting cond addr...");
             match try!(setup_heap_node_access(m,
                                               stack_copy,
                                               if_ap_addr,
@@ -1363,8 +1366,7 @@ fn heap_try_list_access(h: HeapNode) -> Result<ListAccess, MachineError> {
 
 pub fn machine_get_final_val(m: &Machine) -> String {
     assert!(m.is_final_state());
-    format!("{:#?}", m.heap.get(&m.stack.peek().unwrap()))
-    //format_heap_node(&m.heap, &m.stack.peek().unwrap())
+    format_heap_node(&m.heap, &m.stack.peek().unwrap())
 }
 
 
@@ -1382,7 +1384,7 @@ fn print_stack(heap: &Heap, s: &Stack) {
             let node = heap.get(addr);
             table.add_row(row![format_addr_string(addr),
             "->",
-            //format_heap_node(&heap, addr),
+            format_heap_node(&heap, addr),
             format!("{:#?}", node)]);
 
         }
