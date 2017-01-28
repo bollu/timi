@@ -6,8 +6,8 @@
 TIMi - Template Instantiation Machine Interpreter 
 =================================================
 
-A visual, user-friendly implementation of a template instantiation machine to understand how a 
-lazily evaluated functional programming language is evaluated.
+A visual, user-friendly implementation of a template instantiation machine. Built to understand how 
+lazily evaluate programming language evaluates.
 
 [![asciicast](https://asciinema.org/a/33a5xa2rcglfw1ff6hv6yqu84.png)](https://asciinema.org/a/33a5xa2rcglfw1ff6hv6yqu84)
 
@@ -16,11 +16,10 @@ lazily evaluated functional programming language is evaluated.
 - [Quickstart](#quickstart)
 - [Interpreter Options & Usage](#interpreter-options)
 - [Language Introduction](#language-introduction)
-    - [Top level](#top-level)
+    - [Top level (Supercombinators)](#top-level)
     - [The `main` value](#main-value)
     - [Expressions](#expressions)
     - [Lack of Lambda & Case](#lack-of-lambda-and-case)
-    - [Code Examples](#code-examples)
 - [Runtime](#runtime)
     - [Components of the machine](#components-of-machine)
     - [Evaluation](#evaluation)
@@ -30,39 +29,45 @@ lazily evaluated functional programming language is evaluated.
     - [The Dump](#the-dump)
 - [Roadmap](#roadmap)
 - [Design Decisions](#design-decisions)
-- [Stuff I Learnt](#stuff-I-learnt)
+- [Things Learnt](#things-learnt)
 - [References](#references)
 
 ## Quickstart
 
 #### Binary from  `cargo`
-To quickly get the interpreter `timi` if you have `cargo` (Rust's package manager), run
+To get the interpreter `timi` with `cargo` (Rust's package manager), run
 ```bash
 $ cargo install timi && timi
 ```
 
 #### Build from source
-run
+Run
 ```bash
 $ git clone https://github.com/bollu/timi.git && cd timi && cargo run
 ```
+to download and build from source.
 
 
 #### Using the interpreter
 
-Type out expressions if you want them to be evaluated. For example:
+##### Expressions
+Type out expressions to evaluate. For example:
 ```
 > 1 + 1
 ```
 will cause `1 + 1` to be evaluated
 
 
-Use `define <name> [<param>]* = <expr>` to create function bindings
+##### Definitions
+Use `define <name> [<param>]* = <expr>` to create new supercombinators.
 ```
 > define plus x y = x + y
+```
+Will create a function called `plus` that takes two parameters `x` and `y`. To run
+this function, call
+```
 > plus 1 1
 ```
-will create a function called `plus` that takes two parameters `x` and `y`
 
 ## Interpreter Options & Usage
 
@@ -72,9 +77,7 @@ To go through the execution step-by-step, use
 ```
 >:step
 
-On entering an expression in this mode, the prompt will change to
-```
-{step of execution}>>
+On entering an expression in this mode, the prompt will change to >>
 ```
 
 - Use `>>s` (for `step`) or `>>n` (for `next`) to go to the next step
@@ -88,28 +91,24 @@ to enable continuous execution of the entire program, use
 
 ## Language Introduction
 
-The language can be seen as a reduced Haskell-like language. It is called `Core`,
-both in `TIMi` and in `GHC (Glasgow haskell compiler)`, as it forms the minimal
-subset for interpretation.
+The language is a small, lazily evaluated language. Lazy evaluation means that
+evaluation is delayed till a value is needed.
 
 
+#### Top level (Supercombinators)
 
-#### Top Level
-
-Top level declarations (which are also called `supercombinators`) are of
-the form
-
+Top level declarations (which are also called *supercombinators*) are of
+the form:
 ```
-<name> [arg]* = <core expr>
+<name> [args]* = <core expr>
 ```
 
-an example is of the form
-
+Example:
 ```
 K x y = x
 ```
 
-Multiple declarations are separated by use of `;`
+Multiple top-level declarations are separated by use of `;`
 
 ```
 I x = x;
@@ -130,7 +129,7 @@ the execution starts with a top level function (supercombinator) called as
 
 Expressions can be one of the given alternatives. Note that `lambda` and
 `case` are missing, since they are difficult to implement in this style of
-machine. More is talked about this in the section [#Lack of Lambda and Case](#lack-of-lambda-and-case).
+machine. More is talked about this in the section [Lack of Lambda and Case](#lack-of-lambda-and-case).
 
     - **Let**
 
@@ -166,8 +165,7 @@ machine. More is talked about this in the section [#Lack of Lambda and Case](#la
         The `Pack` primitive operation takes a tag and an arity. When used, it packages
         up an `arity` number of expressions into a single object and tags it with `tag`.
 
-        For example,
-
+        Example:
         ```haskell
         False = Pack{0, 0}
         True = Pack{1, 0}
@@ -261,8 +259,22 @@ machine. More is talked about this in the section [#Lack of Lambda and Case](#la
 
 #### Lack of Lambda and Case
 
-The language does not have `lambda` and `case` to keep the code simple, and
-as close to the source material as possible. 
+##### Case
+`Case` requires us to have some notion of
+pattern matching / destructuring which is not present in this machine.
+
+
+##### Lambda
+`Lambda` needs a way to control scope. However, there is no real "scope" in
+this machine, since the only time variables are bound is:
+
+* during template instantiation
+* let bindings
+
+I think it is possible to implement lambdas, but I'm not super sure. If someone knows,
+please drop me an e-mail or a pull request!
+
+
 
 
 ## Runtime
@@ -306,9 +318,6 @@ symbol `+` is mapped to its address `0xE` in the `Globals` section. The
 whole expression sits on top of the stack, waiting to be evaluated.
 
 
-Now that we understand the components of the machine, let us see how it is
-used.
-
 ##### Example: `(((S K) K) 3)`
 
 Consider the definitions:
@@ -347,8 +356,8 @@ as `(((S K) K)` applied on `3`.
 
 
 The LHS of the function application `((S K) K)`
-is pushed on top of the current stack. This continues to happen till we are left
-with just a supercombinator on the top of the stack.
+is pushed on top of the current stack. This process continues till there
+is a supercombinator on the top of the stack.
 
 
 ```haskell
@@ -468,14 +477,14 @@ Stack - 1 items
 ```
 
 The second parameter to `((K 3 (K 3))`, the `(K 3)` is never even evaluated! the `3`
-is simply replaced as `x` in the body of `K x y = x`.
+is replaced as `x` in the body of `K x y = x`.
 
 Thus, laziness is achieved by evaluating from the outside-in, and only replacing
 function bodies without evaluating arguments. 
 
 #### Primitives
 
-Primitives like `+`, `-`, etc. are similar in some ways - they also follow the
+`+`, `-`, etc. are similar in some ways - they also follow the
 same model of unwinding the spine of the execution.
 
 ```
@@ -511,15 +520,17 @@ Stack - 1 items
 ```
 
 
-However, computing something like `(I 3) + 1` is not as straightforward, since
-`I 3` now needs to be evaluated before the `+` can be done. How this is done
-is explained in [the section The Dump](#the-dump).
+Computing something like `(I 3) + 1` is not as straightforward, since
+`I 3` now needs to be evaluated before the `+` can be evaluated. the section [The Dump](#the-dump)
+explains this process.
 
 #### Indirection
 
 When we instantiate a supercombinator, we do not cache the results of an application.
-If we could rewrite Heap values, then we should rewrite the value of a function
-application node with the result obtained, so that the computation is cached.
+Function application is optimized by rewriting the value of the
+application node with the result obtained. This caches the computation.
+This is what `Indirection` nodes do - they redirect a heap address to
+another address.
 
 We will consider the example where we define `x = I 3` where `I x = x`.
 
@@ -598,8 +609,7 @@ to hold (`I 3`).
 
 `0x25` is an indirection the value of `I 3`, which is `3` (at `0x24`).
 
-This way, the value of `I 3` does not need to be evaluated, and simply
-re-routes to `3`.
+This way, the value of `I 3` is not evaluated. It re-routes to `3`.
 
 #### The Dump
 
@@ -641,7 +651,7 @@ we now have `+` on the top of the stack, but the LHS is a computation that needs
 to be performed. Thus, we need to have some way of performing the computation.
 
 
-The solution is to migrate the current into the "dump", and put `I 1` on top
+The solution is to migrate the current stack into the Dump, and push `I 1` on top
 of the stack and have it evaluate.
 
 ```
@@ -717,9 +727,10 @@ This allows the `+` execution to "pick up" the value of 1 later. The
 rewriting is _essential_ to this evaluation. It allows the dumped stack
 to get the output of the execution of `I 3`.
 
-Now that there is a `1` on the stack, there is nothing more to evaluate on the
-stack. However, there is still a stack in the Dump which we bring back as the
-stack.
+The stack now has one element `1`. Nothing is left to be evaluated.
+So, we know that the value of `(I 1)` is `1`.
+
+We have the rest of the computation in the Dump which we bring back.
 
 ```
 *** ITERATION: 7
@@ -747,9 +758,6 @@ At _Iteration 7_, the stack has
 ```
 We remove the indirection by "short circuiting" the indirection and replacing
 it with the value we want.
-
-We do this so that we are left with `+ <num> <num>`.
-
 
 
 ```
@@ -786,7 +794,7 @@ with the machine evaluating `1 + 3` on seeing `+` at the top of the stack.
 ## Roadmap
 - [x] Mark 1 (template instantiation)
 - [x] let, letrec
-- [x] template updates (do not stupidly instatiate each time)
+- [x] template updates (do not naively instantiate each time)
 - [x] numeric functions
 - [x] Booleans
 - [x] Tuples
@@ -796,25 +804,16 @@ with the machine evaluating `1 + 3` on seeing `+` at the top of the stack.
 
 ### Design Decisions
 
-`TIM` is written in Rust because:
-- Rust is a systems language, so it'll hopefully be faster than an implementation in Haskell
-- Rust is strict, which means that implementing certain things like letrec needs some more elbow grease
-- Rust has nice libraries (and a slick `stdlib`) that let you write safe and pretty code
 
-##### Why does `peek()` return `PeekNoToken` instead of error?
-in a lot of the parsing, we usually check if the next token is something.
-if it isn't, we just return immediately.
+`TIMi` is written in Rust because:
 
-Semantically, it makes sense, since you're just "peeking" at the next token,
-so we can signal that there is no token by returning a sentinel token.
+- Rust is a systems language, so it allows for more control over memory, references, etc.
+  which I enjoy.
+- Rust has nice libraries for `readline`, table printing, and a slick `stdlib` for
+  pretty code
 
-`try!(cursor.peek())` causes us to lose control flow and propogate
-an __error__ if we peek at something that doesn't exist, which is the wrong
-semantics. We want the user to be able to peek and make decisions based on
-whether something is present ahead or not. `consume()` and `expect()` should
-return errors since you're asking the cursor to go one token ahead.
 
-### Stuff I learnt
+### Things Learnt
 
 ##### Difference between `[..]` and `&[..]`
 
@@ -822,11 +821,10 @@ return errors since you're asking the cursor to go one token ahead.
 versus
 [Slice with ref](https://github.com/bollu/TIM-template-instantiation/blob/d8515212f899ad185bec4bd1812bd493322b8d5d/src/main.rs#L1163)
 
-the difference is that the second slice is being taken inside `tokenize`, which somehow maintains length info
-(which is needed for `[..]` (since `[..]` means that you know the number of elements in it).
-
-So, when it is outside, you need to take a slice `&[..]`, so that `Sized` information is not needed
+the difference is that the second slice `[..]` maintains length information which it needs
+at compile-time.
 
 ### References
 - [Implementing Functional languages, a tutorial](http://research.microsoft.com/en-us/um/people/simonpj/Papers/pj-lester-book/)
-- A huge thanks to [quchen's `STGi` implementation](https://github.com/quchen/stgi) whose style I straight up copied for this machine.
+- A huge thanks to [quchen's `STGi` implementation](https://github.com/quchen/stgi)
+  whose style of documentation I copied for this machine.

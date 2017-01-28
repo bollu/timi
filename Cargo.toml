@@ -20,8 +20,10 @@ prettytable-rs = "^0.6"
 rustyline = "1.0.0"
 rand = "0.3"
 
-
-
 [[bin]]
 name = "timi"
-path = "src/main.rs"
+path = "src/bin.rs"
+
+[lib]
+name = "timi"
+path = "src/lib.rs"
