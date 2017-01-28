@@ -58,9 +58,15 @@ mod test {
     }
 
     #[test]
-    fn test_let_mutual_uninstantiatable() {
+    fn test_let_mutual_rec() {
         let m = run_machine("main = let y = K x 20; x = K1 y 10 in y + y");
         assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(20));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_let_uninstantiatable() {
+        run_machine("main = let y = x; x = y in 10");
     }
 
 
