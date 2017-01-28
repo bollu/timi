@@ -1486,7 +1486,7 @@ pub fn print_machine(m: &Machine) {
 fn run_machine(program:  &str) -> Machine {
     use frontend::string_to_program;
 
-    let main = string_to_program(program.to_string())
+    let main = string_to_program(&program.to_string())
         .unwrap();
     let mut m = Machine::new_with_main(main);
     while !m.is_final_state() {
