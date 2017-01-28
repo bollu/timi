@@ -15,6 +15,7 @@ lazily evaluate programming language evaluates.
 # Table of Contents
 - [Quickstart](#quickstart)
 - [Interpreter Options & Usage](#interpreter-options)
+- [Executing `.tim` files](#executing-tim-files)
 - [Language Introduction](#language-introduction)
     - [Top level (Supercombinators)](#top-level)
     - [The `main` value](#main-value)
@@ -89,6 +90,25 @@ to enable continuous execution of the entire program, use
 >:nostep
 ```
 
+
+## Executing `.tim` files
+
+The interpreter can be invoked on a separate file by passing the file name
+as a command line parameter.
+
+#### Example: standalone file
+
+create a file called `standalone.tim`
+``` haskell
+main = 1
+```
+
+Run this using
+```
+$ timi standalone.tim
+```
+
+This will print out the program trace.
 ## Language Introduction
 
 The language is a small, lazily evaluated language. Lazy evaluation means that
