@@ -243,6 +243,12 @@ machine. More is talked about this in the section [Lack of Lambda and Case](#lac
 
 - **Primitive literal**
     An integer declaration.
+    
+    ```
+    >1
+    >2
+    >3
+    ```
 
 - **Booleans**
     ```
@@ -289,6 +295,16 @@ machine. More is talked about this in the section [Lack of Lambda and Case](#lac
     `nil-handler` is a value
     `cons-handler` is a function that takes 2 parameters, the value in the
     `Cons` cell and the rest of the list.
+
+- **Comments**
+    ```python
+    # anything after a # till the end of the line is commented
+    main = 1 # this is a comment as well
+    ```
+    
+    Comment style is like python, where `#` is used to comment till the
+    end of the line. There are no multiline comments.
+    
 
 #### Lack of Lambda and Case
 
