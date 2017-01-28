@@ -152,7 +152,7 @@ mod test {
         let m = run_machine("main = foldr plus 0 list;\n\
                              list = Cons 1 (Cons 2 (Cons 3 Nil));\n\
                              plus a b = a + b;\n\
-                             foldr_go f seed x xs = (foldr f (f seed x) xs)
+                             foldr_go f seed x xs = (foldr f (f seed x) xs);\n\
                              foldr f seed list = caseList list seed (foldr_go f seed)");
         print_machine(&m);
         assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(6));

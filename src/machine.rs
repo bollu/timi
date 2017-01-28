@@ -392,7 +392,7 @@ pub struct Machine {
     pub options: MachineOptions,
 }
 
-type MachineError = String;
+pub type MachineError = String;
 
 
 

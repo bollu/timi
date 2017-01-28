@@ -58,19 +58,19 @@ fn run_step_interaction<C>(rl: &mut Editor<C>,
     }
 }
 
-fn run_machine_step(m: &mut Machine, iteration: usize) {
+fn run_machine_step(m: &mut Machine, iteration: usize) -> Result<(), MachineError> {
     println!("*** ITERATION: {}", iteration);
 
     if let Result::Err(e) = m.step() {
-        print!("step error: {}\n", e);
-        return
-
+        return Result::Err(e)
     }
 
     print_machine(&m);
     if m.is_final_state() {
         println!("=== FINAL: {} ===", machine_get_final_val(&m));
-    }
+    };
+
+    Result::Ok(())
 }
 
 fn run_machine<C>(rl: &mut Editor<C>, m: &mut Machine, pause_per_step: &mut bool) ->
@@ -79,7 +79,11 @@ where C: Completer {
 
     let mut iteration = 1;
     loop {
-        run_machine_step(m, iteration);
+
+        match run_machine_step(m, iteration) {
+            Ok(()) => {},
+            Err(e) => { println!("step error: {}", e); break; }
+        }
 
         if *pause_per_step {
             try!(run_step_interaction(rl, iteration, m, pause_per_step));
@@ -220,10 +224,12 @@ fn main() {
     use std::env;
     if env::args().len() == 1 {
         interpreter();
+        return;
     }
-    if env::args().len() > 2 {
+    else if env::args().len() > 2 {
        println!("usage: timi [file-to-execute] [--help]");
-       println!("timi is an interpreter for the template instantiation language") 
+       println!("timi is an interpreter for the template instantiation language");
+       return;
     }
     
     let arg = env::args().nth(1).expect("expected 1 command line argument");
@@ -239,7 +245,13 @@ fn main() {
     
     let mut iteration = 1;
     while !m.is_final_state() {
-        run_machine_step(&mut m, iteration);
+        match run_machine_step(&mut m, iteration) {
+            Ok(()) => {}
+            Err(e) => {
+                println!("step error: {}", e);
+                break;
+            }
+        }
         iteration += 1;
     }
 }
