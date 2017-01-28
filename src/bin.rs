@@ -104,6 +104,7 @@ fn interpreter() {
     let mut pause_per_step = false;
     let mut m : Machine = Machine::new_minimal();
     let mut rl = Editor::<()>::new();
+    let _ =  rl.load_history("history.txt");
 
     loop {
 
@@ -181,7 +182,11 @@ fn interpreter() {
                 } 
             }
         }
+        rl.save_history("history.txt").unwrap();
     }
+
+
+    rl.save_history("history.txt").unwrap();
 }
 
 

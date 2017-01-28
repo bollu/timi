@@ -28,7 +28,7 @@ impl fmt::Debug for CoreExpr {
 
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &CoreExpr::Variable(ref name) => write!(fmt, "{}", name),
+            &CoreExpr::Variable(ref name) => write!(fmt, "v_{}", name),
             &CoreExpr::Num(ref num) => write!(fmt, "n_{}", num),
             &CoreExpr::Application(ref e1, ref e2) =>
                 write!(fmt, "({:#?} $ {:#?})", *e1, *e2),

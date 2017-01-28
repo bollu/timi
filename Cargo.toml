@@ -23,6 +23,7 @@ rand = "0.3"
 [[bin]]
 name = "timi"
 path = "src/bin.rs"
+doc = false
 
 [lib]
 name = "timi"

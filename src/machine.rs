@@ -331,7 +331,7 @@ impl fmt::Debug for Heap {
         keyvals.sort_by(|a, b| a.0.cmp(b.0));
 
         for &(key, val) in keyvals.iter().rev() {
-            try!(write!(fmt, "\t{} => {:#?}\n", key, val));
+            try!(write!(fmt, "\t{} => {:#?}\n", format_addr_string(key), val));
         }
 
         return Result::Ok(())
@@ -373,6 +373,13 @@ impl Heap {
 
     pub fn len(&self) -> usize {
         self.heap.len()
+    }
+
+    pub fn contains(&self, addr: &Addr) -> bool {
+        match self.heap.get(&addr) {
+            Some(_) => true,
+            None => false
+        }
     }
 
 }
@@ -696,6 +703,60 @@ impl Machine {
     }
 }
 
+///this will return a node that the address is bound to on the heap.
+///if there is no instantiation (which is possible in cases like)
+///let y = x; x = y in 10
+///this will return no address.
+fn find_root_heap_node_for_addr(fake_addr: &Addr,
+                                fake_to_instantiated_addr: &HashMap<Addr, Addr>,
+                                heap: &Heap) -> Option<Addr> {
+    let mut visited : HashSet<Addr> = HashSet::new();
+    let mut cur_addr = *fake_addr;
+
+    loop {
+        if visited.contains(&cur_addr) {
+            return None;
+        }
+
+        visited.insert(cur_addr);
+
+        if heap.contains(&cur_addr) {
+            return Some(cur_addr)
+        } else {
+            cur_addr = *fake_to_instantiated_addr
+                        .get(&cur_addr)
+                        .expect(&format!("expected to find address
+                                that is not in heap as a 
+                                let-created address: {}", cur_addr));
+
+        }
+    }
+
+
+
+
+}
+
+/// let bindings first bind to "phantom" addresses, after which
+/// they relink addresses to their correct locations. This
+/// lets us check if an address is phantom to prevent us from trying to access
+/// these 
+/// TODO: create an alegbraic data type for Addr to represent this, and not
+/// just using negative numbers. This is a hack.
+fn is_addr_phantom(addr: Addr) -> bool {
+    addr < 0
+
+}
+
+/// instantiate let bindings
+///
+/// This tricky case needs to be handled:
+/// ```
+/// let y = x; x = 10 in y + y
+/// ```
+/// here, if we instantiate `y`, then `x`, and then continue
+/// replacing addresses, `y` will get the temporary address of `x`.
+/// so, we need to use the "real" addresses of values
 fn instantiate_let_bindings(m: &mut Machine,
                             orig_env: &Bindings,
                             bindings: Vec<(Name, Box<CoreExpr>)>) 
@@ -703,34 +764,65 @@ fn instantiate_let_bindings(m: &mut Machine,
 
         let mut env : Bindings = orig_env.clone();
 
-        for (&(ref name, _), addr) in bindings.iter().zip(1..(bindings.len()+1))  {
+        for (&(ref name, _), addr) in bindings.iter().zip(1..(bindings.len()+2))  {
             env.insert(name.clone(), -(addr as i32));
         }
 
-        let mut old_to_new_addr: HashMap<Addr, Addr> = HashMap::new();
+        let mut fake_to_instantiated_addr: HashMap<Addr, Addr> = HashMap::new();
+        let mut fake_addr_to_name: HashMap<Addr, String> = HashMap::new();
 
         //instantiate RHS, while storing legit LHS addresses
         for (bind_name, bind_expr) in bindings.into_iter() {
-            let new_addr = try!(m.instantiate(*bind_expr.clone(), &env));
-            let old_addr = try!(env.get(&bind_name)
-                                .ok_or(format!("unable to find |{}| in env", bind_name)))
-                .clone();
+            let inst_addr = try!(m.instantiate(*bind_expr.clone(), &env));
+            let fake_addr = try!(env.get(&bind_name)
+                                .ok_or(format!("unable to find |{}| in env", bind_name))).clone();
 
-            old_to_new_addr.insert(old_addr, new_addr);
 
-            //insert the "correct" address into the let environment
-            env.insert(bind_name.clone(), new_addr);
+            fake_to_instantiated_addr.insert(fake_addr, inst_addr);
+            fake_addr_to_name.insert(fake_addr, bind_name);
         }
 
 
-        for (old, new) in old_to_new_addr.iter() {
-            for to_edit in old_to_new_addr.values() {
-                change_addr_in_heap_node(*old,
-                                         *new,
-                                         *to_edit,
-                                         &mut m.heap);
+        for  (&fake_addr, _) in fake_to_instantiated_addr.iter() {
+            let name = fake_addr_to_name
+                                .get(&fake_addr)
+                                .expect("environment must have let-binding name")
+                                .clone();
+
+            let new_addr = match find_root_heap_node_for_addr(&fake_addr,
+                                                              &fake_to_instantiated_addr,
+                                                              &m.heap) {
+                Some(addr) => addr,
+                None => return Err(format!(
+                        "variable contains cyclic definition: {}",
+                         name))
+                        
+            };
+
+            println!("variable: {} | old address: {} | new address: {}", name, fake_addr, new_addr);
+            println!("old heap:\n{:#?}", m.heap);
+
+            //replace address in globals
+            env.insert(name, new_addr);
+            //change all the "instantiation addresses" to the actual
+            //root of the heap node
+            for &inst_addr in fake_to_instantiated_addr.values() {
+
+                //something was actually instantiated: that is, it wasn't a variable
+                //pointing to another variable
+                //TODO: make this an algebraic data type rather than using negatives
+                //let x = 10; y = x in y will work for this
+                if !is_addr_phantom(inst_addr) {
+                    change_addr_in_heap_node(fake_addr,
+                                             new_addr,
+                                             inst_addr,
+                                             &mut HashSet::new(),
+                                             &mut m.heap)
+                }
             }
 
+            println!("env: {:#?}", env);
+            println!("new heap:\n {:#?}", m.heap);
         }
 
         Result::Ok(env)
@@ -738,24 +830,45 @@ fn instantiate_let_bindings(m: &mut Machine,
     }
 
 
-fn change_addr_in_heap_node(old_addr: Addr,
+///edits the address recursively in the given heap node to
+///replace the `fake_addr` with `new_addr` **at** `edit_addr` node.
+///edited_addrs is a bookkeeping device used to make sure we don't recursively
+///edit things ad infitum.
+///
+/// Example of recursively editing addresses:
+/// let x = y x; y = x y
+/// 0 -> Ap (1 $ 0)
+/// 1 -> Ap (0 $ 1)
+fn change_addr_in_heap_node(fake_addr: Addr,
                             new_addr: Addr,
                             edit_addr: Addr,
+                            mut edited_addrs: &mut HashSet<Addr>,
                             mut heap: &mut Heap) {
+
+    if is_addr_phantom(edit_addr) {
+        return;
+    }
+
+    if edited_addrs.contains(&edit_addr) {
+        return;
+    } else { 
+        edited_addrs.insert(edit_addr);
+    }
 
     match heap.get(&edit_addr) {
         HeapNode::Data{component_addrs, tag} => {
 
             let mut new_addrs = Vec::new();
             for i in 0..component_addrs.len() {
-                if component_addrs[i] == old_addr {
+                if component_addrs[i] == fake_addr {
                     new_addrs[i] = new_addr;
                 }
                 else {
                     new_addrs[i] = component_addrs[i];
-                    change_addr_in_heap_node(old_addr,
+                    change_addr_in_heap_node(fake_addr,
                                              new_addr,
                                              new_addrs[i],
+                                             &mut edited_addrs,
                                              heap);
                 }
             };
@@ -765,34 +878,17 @@ fn change_addr_in_heap_node(old_addr: Addr,
                          tag:tag})
         },
         HeapNode::Application{fn_addr, arg_addr} => {
-            let new_fn_addr = if fn_addr == old_addr {
+            let new_fn_addr = if fn_addr == fake_addr {
                 new_addr
             } else {
                 fn_addr
             };
 
 
-            let new_arg_addr = if arg_addr == old_addr {
+            let new_arg_addr = if arg_addr == fake_addr {
                 new_addr
             } else {
                 arg_addr
-            };
-
-            //if we have not replaced, then recurse
-            //into the application calls
-            if fn_addr != old_addr {
-                change_addr_in_heap_node(old_addr,
-                                         new_addr,
-                                         fn_addr,
-                                         &mut heap);
-
-            };
-
-            if arg_addr != old_addr {
-                change_addr_in_heap_node(old_addr,
-                                         new_addr,
-                                         arg_addr,
-                                         &mut heap);
             };
 
             heap.rewrite(&edit_addr,
@@ -801,18 +897,41 @@ fn change_addr_in_heap_node(old_addr: Addr,
                              arg_addr: new_arg_addr
                          });
 
+            //if we have not replaced, then recurse
+            //into the application calls
+            if fn_addr != fake_addr {
+                change_addr_in_heap_node(fake_addr,
+                                         new_addr,
+                                         fn_addr,
+                                         &mut edited_addrs,
+                                         &mut heap);
+
+            };
+
+            if arg_addr != fake_addr {
+                change_addr_in_heap_node(fake_addr,
+                                         new_addr,
+                                         arg_addr,
+                                         &mut edited_addrs,
+                                         &mut heap);
+            };
+
+
         },
         HeapNode::Indirection(ref addr) =>
-            change_addr_in_heap_node(old_addr,
+            change_addr_in_heap_node(fake_addr,
                                      new_addr,
                                      *addr,
+                                     &mut edited_addrs,
                                      &mut heap),
 
                                      HeapNode::Primitive(_) => {}
         HeapNode::Supercombinator(_) => {}
         HeapNode::Num(_) => {},
     }
+
 }
+
 
 
 

@@ -310,23 +310,16 @@ machine. More is talked about this in the section [Lack of Lambda and Case](#lac
     end of the line. There are no multiline comments.
     
 
-#### Lack of Lambda and Case
-
+#### Lack of Lambda & Case
 ##### Case
 `Case` requires us to have some notion of
 pattern matching / destructuring which is not present in this machine.
 
 
 ##### Lambda
-`Lambda` needs a way to control scope. However, there is no real "scope" in
-this machine, since the only time variables are bound is:
-
-* during template instantiation
-* let bindings
-
-I think it is possible to implement lambdas, but I'm not super sure. If someone knows,
-please drop me an e-mail or a pull request!
-
+As a simplification, the language assumes that all lambdas have been converted to
+top level definitions. This process is called as [lambda lifting](https://en.wikipedia.org/wiki/Lambda_lifting)
+and `TIMi` assumes that all lambdas have been lifted.
 
 
 
@@ -867,6 +860,16 @@ with the machine evaluating `1 + 3` on seeing `+` at the top of the stack.
 
 
 ### Things Learnt
+##### Difference between lazy recursive bindings and strict recursive bindings
+
+Lazy recursive bindings will let you get away with
+
+```haskell
+let y = x; x = y in 10
+```
+
+while strict recursive bindings will try to instantiate `x` and `y`.
+
 
 ##### Difference between `[..]` and `&[..]`
 
