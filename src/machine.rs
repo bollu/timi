@@ -287,29 +287,29 @@ pub struct Stack {
 }
 
 impl Stack {
-    fn new() -> Stack {
+    pub fn new() -> Stack {
         Stack {
             stack: Vec::new(),
         }
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.stack.len()
     }
 
-    fn push(&mut self, addr: Addr) {
+    pub fn push(&mut self, addr: Addr) {
         self.stack.push(addr)
     }
 
-    fn pop(&mut self) -> Result<Addr, MachineError> {
+    pub fn pop(&mut self) -> Result<Addr, MachineError> {
         self.stack.pop().ok_or("top of stack is empty".to_string())
     }
 
-    fn peek(&self) -> Result<Addr, MachineError> {
+    pub fn peek(&self) -> Result<Addr, MachineError> {
         self.stack.last().cloned().ok_or("top of stack is empty to peek".to_string())
     }
 
-    fn iter(&self) -> std::iter::Rev<std::slice::Iter<Addr>> {
+    pub fn iter(&self) -> std::iter::Rev<std::slice::Iter<Addr>> {
         self.stack.iter().rev()
     }
 
@@ -340,7 +340,7 @@ impl fmt::Debug for Heap {
 }
 
 impl Heap {
-    fn new()  -> Heap {
+    pub fn new()  -> Heap {
         Heap {
             heap: HashMap::new(),
             next_addr: 0
@@ -348,7 +348,7 @@ impl Heap {
     }
 
     //allocate the HeapNode on the heap
-    fn alloc(&mut self, node: HeapNode) -> Addr {
+    pub fn alloc(&mut self, node: HeapNode) -> Addr {
         let addr = self.next_addr;
         self.next_addr += 1;
 
@@ -356,14 +356,14 @@ impl Heap {
         addr
     }
 
-    fn get(&self, addr: &Addr) -> HeapNode {
+    pub fn get(&self, addr: &Addr) -> HeapNode {
         self.heap
             .get(&addr)
             .cloned()
             .expect(&format!("expected heap node at addess: {}", addr))
     }
 
-    fn rewrite(&mut self, addr: &Addr, node: HeapNode) {
+    pub fn rewrite(&mut self, addr: &Addr, node: HeapNode) {
         assert!(self.heap.contains_key(addr),
         "asked to rewrite (address: {}) with \
         (node: {:#?}) which does not exist on heap",
@@ -371,7 +371,7 @@ impl Heap {
         self.heap.insert(*addr, node);
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.heap.len()
     }
 
@@ -385,11 +385,11 @@ pub struct MachineOptions {
 
 #[derive(Clone)]
 pub struct Machine {
-    stack : Stack,
-    heap : Heap,
-    globals: Bindings,
-    dump: Dump,
-    options: MachineOptions,
+    pub stack : Stack,
+    pub heap : Heap,
+    pub globals: Bindings,
+    pub dump: Dump,
+    pub options: MachineOptions,
 }
 
 type MachineError = String;
@@ -493,8 +493,7 @@ impl Machine {
 
     }
 
-    #[cfg(test)]
-    pub fn new_with_main(program: CoreProgram) -> Machine {
+    pub fn new_with_main(program: CoreProgram) -> Result<Machine, MachineError> {
         let mut m = Machine::new_minimal();
         for sc in program.into_iter() {
             m.add_supercombinator(sc);
@@ -503,11 +502,11 @@ impl Machine {
         //get main out of the heap
         let main_addr : Addr = match m.globals.get("main") {
             Some(main) => main,
-            None => panic!("no main found")
+            None => return Result::Err("no main found in given program".to_string())
         }.clone();
 
         m.stack.push(main_addr);
-        m
+        Result::Ok(m)
     }
 
     pub fn add_supercombinator(&mut self, sc_defn: SupercombDefn) -> Addr{
@@ -1481,143 +1480,5 @@ pub fn print_machine(m: &Machine) {
     println!("{}", Red.bold().paint("===///==="));
 }
 
-
-#[cfg(test)]
-fn run_machine(program:  &str) -> Machine {
-    use frontend::string_to_program;
-
-    let main = string_to_program(&program.to_string())
-        .unwrap();
-    let mut m = Machine::new_with_main(main);
-    while !m.is_final_state() {
-        let _ = m.step().unwrap();
-    }
-    return m
-}
-
-#[test]
-fn test_skk3() {
-    let m = run_machine("main = S K K 3");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(3));
-}
-
-#[test]
-fn test_negate_simple() {
-    let m = run_machine("main = negate 1");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(-1));
-}
-
-#[test]
-fn test_negate_inner_ap() {
-    let m = run_machine("main = negate (negate 1)");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(1));
-}
-
-
-#[test]
-fn test_add_simple() {
-    let m = run_machine("main = 1 + 1");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(2));
-}
-
-#[test]
-fn test_add_lhs_ap() {
-    let m = run_machine("main = (negate 1) + 1");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(0));
-}
-
-
-#[test]
-fn test_add_rhs_ap() {
-    let m = run_machine("main = 1 + (negate 3)");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(-2));
-}
-
-#[test]
-fn test_add_lhs_rhs_ap() {
-    let m = run_machine("main = (negate 1) + (negate 3)");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(-4));
-}
-
-#[test]
-fn test_complex_arith() {
-    let m = run_machine("main = 1 * 2 + 10 * 20 + 30 / 3");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(212));
-}
-
-#[test]
-fn test_if_true_branch() {
-    let m = run_machine("main = if True 1 2");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(1));
-}
-
-
-#[test]
-fn test_if_false_branch() {
-    let m = run_machine("main = if False 1 2");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(2));
-}
-
-#[test]
-fn test_if_cond_complex_branch() {
-    let mut m = run_machine("main = if (1 < 2) 1 2");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(1));
-
-    m = run_machine("main = if (1 > 2) 1 2");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(2));
-}
-
-#[test]
-fn test_if_cond_complex_result() {
-    let mut m = run_machine("main = if True (100 + 100) (100 - 100)");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(200));
-
-    m = run_machine("main = if False (100 + 100) (100 - 100)");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(0));
-}
-
-#[test]
-fn test_case_pair_simple_left_access() {
-    let m = run_machine("main = casePair (MkPair 1 2) K");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(1));
-}
-
-#[test]
-fn test_case_pair_simple_right_access() {
-    let m = run_machine("main = casePair (MkPair 1 2) K1");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(2));
-}
-
-
-#[test]
-fn test_case_pair_complex_access_function() {
-    let m = run_machine("main = casePair (MkPair 7 4) (compose K fac)");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(5040));
-}
-
-#[test]
-fn test_list_cons_simple() {
-    let m = run_machine("main = caseList (Cons 1 Nil) undef K");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(1));
-}
-
-#[test]
-fn test_list_cons_complex() {
-    //TODO: improve this test by encoding a fold
-    let m = run_machine("main = caseList (Cons 1 (Cons 2 Nil)) undef K");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(1));
-}
-
-#[test]
-fn test_list_nil_simple() {
-    let m = run_machine("main = caseList Nil (10) undef");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(10));
-}
-
-#[test]
-fn test_nil_complex() {
-    let m = run_machine("main = caseList Nil (10 * 20) undef");
-    assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(200));
-}
 
 

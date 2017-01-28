@@ -1,7 +1,9 @@
-
 #[macro_use]
 extern crate prettytable;
 extern crate rustyline;
+
+use std::fs::File;
+
 
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -16,7 +18,7 @@ use machine::*;
 
 
 fn run_step_interaction<C>(rl: &mut Editor<C>,
-                           iter_count: i32,
+                           iter_count: usize,
                            m: &Machine,
                            pause_per_step: &mut bool) ->
     Result<(), ReadlineError>
@@ -55,36 +57,46 @@ fn run_step_interaction<C>(rl: &mut Editor<C>,
 
     }
 }
+
+fn run_machine_step(m: &mut Machine, iteration: usize) {
+    println!("*** ITERATION: {}", iteration);
+
+    if let Result::Err(e) = m.step() {
+        print!("step error: {}\n", e);
+        return
+
+    }
+
+    print_machine(&m);
+    if m.is_final_state() {
+        println!("=== FINAL: {} ===", machine_get_final_val(&m));
+    }
+}
+
 fn run_machine<C>(rl: &mut Editor<C>, m: &mut Machine, pause_per_step: &mut bool) ->
-    Result<(), ReadlineError>
-    where C: Completer {
+Result<(), ReadlineError>
+where C: Completer {
 
-    let mut i = 1;
+    let mut iteration = 1;
     loop {
-        println!("*** ITERATION: {}", i);
-
-        if let Result::Err(e) = m.step() {
-            print!("step error: {}\n", e);
-            break;
-
-        }
-
-        print_machine(&m);
-        if m.is_final_state() {
-            println!("=== FINAL: {} ===", machine_get_final_val(&m));
-            break;
-        }
+        run_machine_step(m, iteration);
 
         if *pause_per_step {
-            try!(run_step_interaction(rl, i, m, pause_per_step));
+            try!(run_step_interaction(rl, iteration, m, pause_per_step));
         }
-        i += 1;
+
+        if m.is_final_state() {
+            break;
+        }
+
+        iteration += 1;
     }
 
     Result::Ok(())
 }
 
-fn main() {
+fn interpreter() {
+
     let mut pause_per_step = false;
     let mut m : Machine = Machine::new_minimal();
     let mut rl = Editor::<()>::new();
@@ -161,9 +173,73 @@ fn main() {
                     break
                 }
                 Err(err) => {
-                    panic!("readline error: {}", err)
+                    panic!("Readline failed: {}", err)
                 } 
             }
         }
+    }
+}
+
+
+fn exit_with_err(err: &str) -> ! {
+    print!("{}", err);
+    std::process::exit(1);
+}
+
+
+fn create_machine_from_file_path(path: &str) -> Machine {
+    use std::io::Read;
+
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(e) => exit_with_err(&format!(
+                    "unable to open file: {}\n{}", path, e))
+    };
+
+    let mut program_string = String::new();
+    if let Err(e) = file.read_to_string(&mut program_string) {
+        exit_with_err(&format!(
+            "unable to read from file: {}\n{}", path, e))
+    }
+
+
+    let program = match string_to_program(&program_string) {
+        Ok(p) => p,
+        Err(e) => exit_with_err(&format!(
+                    "parse error:\n{}", e.pretty_print(&program_string)))
+    };
+
+    match Machine::new_with_main(program) {
+        Ok(m) => return m,
+        Err(e) => panic!("unable to create machine:\n{}", e)
+    };
+
+}
+
+fn main() {
+    use std::env;
+    if env::args().len() == 1 {
+        interpreter();
+    }
+    if env::args().len() > 2 {
+       println!("usage: timi [file-to-execute] [--help]");
+       println!("timi is an interpreter for the template instantiation language") 
+    }
+    
+    let arg = env::args().nth(1).expect("expected 1 command line argument");
+
+    if arg == "--help" {
+       println!("usage: timi [file-to-execute] [--help]");
+       println!("timi is an interpreter for the template instantiation language") ;
+       println!("github: http://github.com/bollu/timi");
+       return;
+    }
+
+    let mut m = create_machine_from_file_path(&arg);
+    
+    let mut iteration = 1;
+    while !m.is_final_state() {
+        run_machine_step(&mut m, iteration);
+        iteration += 1;
     }
 }
