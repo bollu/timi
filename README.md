@@ -77,11 +77,26 @@ this function, call
 To go through the execution step-by-step, use
 ```
 >:step
-
-On entering an expression in this mode, the prompt will change to >>
+enabled stepping through execution
+>1 + 1
+*** ITERATION: 1
+Stack - 1 items
+## top ##
+ 0x21  ->  ((+ 1) 1)  H-Ap(0x1F $ 0x20)
+## bottom ##
+Heap - 34 items
+ 0x21  ->  ((+ 1) 1)  H-Ap(0x1F $ 0x20)
+Dump
+  Empty
+Globals - 30 items
+None in Use
+===///===
+1>>
 ```
 
-- Use `>>s` (for `step`) or `>>n` (for `next`) to go to the next step
+Notice that the prompt has changed to to `>>`.
+##### Step commands
+- `>>n` (for `next`) to go to the next step
 
 
 #### `>:nostep`
@@ -100,6 +115,7 @@ as a command line parameter.
 
 create a file called `standalone.tim`
 ``` haskell
+#standalone.tim
 main = 1
 ```
 
@@ -109,8 +125,8 @@ $ timi standalone.tim
 ```
 
 This will print out the program trace.
-## Language Introduction
 
+## Language Introduction
 The language is a small, lazily evaluated language. Lazy evaluation means that
 evaluation is delayed till a value is needed.
 
@@ -123,19 +139,16 @@ the form:
 <name> [args]* = <core expr>
 ```
 
-Example:
+#####Example:
 ```
 K x y = x
 ```
-
 Multiple top-level declarations are separated by use of `;`
-
 ```
 I x = x;
 K x y = x;
 K1 x y = y
 ```
-
 notice that __the last expression does not have a `;`__
 
 #### The `main` value
@@ -151,131 +164,131 @@ Expressions can be one of the given alternatives. Note that `lambda` and
 `case` are missing, since they are difficult to implement in this style of
 machine. More is talked about this in the section [Lack of Lambda and Case](#lack-of-lambda-and-case).
 
-    - **Let**
+- **Let**
 
-        ```haskell
-        let <...bindings...> in <expr>
-        ```
+    ```haskell
+    let <...bindings...> in <expr>
+    ```
 
-        Let bindings can be recursive and can refer to each other
+    Let bindings can be recursive and can refer to each other
 
-    - **Function application**
+- **Function application**
 
-        ```haskell
-        function <args>
-        ```
+    ```haskell
+    function <args>
+    ```
 
-        Like Haskell's function application. The `<args>` are primitive values or
-        variables.
+    Like Haskell's function application. The `<args>` are primitive values or
+    variables.
 
-        All n-ary application are represented by nested 1-ary applications.
-        Functions are curried by default.
+    All n-ary application are represented by nested 1-ary applications.
+    Functions are curried by default.
 
-        ```haskell
-        f x y z == (((f x) y) z)
-        ```
-
-
-    - **Data Declaration**
-
-        ```haskell
-        Pack{<tag>, <arity>}
-        ```
-
-        The `Pack` primitive operation takes a tag and an arity. When used, it packages
-        up an `arity` number of expressions into a single object and tags it with `tag`.
-
-        Example:
-        ```haskell
-        False = Pack{0, 0}
-        True = Pack{1, 0}
-        ```
-
-        `True` and `False` are represented as `1` tagged and `0` tagged objects that
-        have arity `0`.
-
-        ```haskell
-        MkPair = Pack{2, 2}
-        my_tuple = MkPair 42 -42
-        ```
-
-        `MkPair`, a function used to create tuples uses a tag of `2` and requires two
-        arguments. `my_tuple` is now a data node that holds the values `42` and `-42`.
-
-        **NOTE:** using custom tags will not be very beneficial since the language does
-        not have `case` expressions. Rather, `List` and `Tuple` are created as language
-        inbuilts with custom de-structuring functions called `caseList` and `casePair`
-        respectively.
+    ```haskell
+    f x y z == (((f x) y) z)
+    ```
 
 
-    - **Primitive application**
+- **Data Declaration**
 
-        ```haskell
-        <arg1> primop <arg2>
-        ```
+    ```haskell
+    Pack{<tag>, <arity>}
+    ```
 
-        Primitive operation on integers.
+    The `Pack` primitive operation takes a tag and an arity. When used, it packages
+    up an `arity` number of expressions into a single object and tags it with `tag`.
 
-        The following operations are supported:
+    Example:
+    ```haskell
+    False = Pack{0, 0}
+    True = Pack{1, 0}
+    ```
 
-          - Arithmetic
-            - `+`: addition
-            - `-`: subtraction
-            - `*`: multiplication
-            - `/`: integer division
+    `True` and `False` are represented as `1` tagged and `0` tagged objects that
+    have arity `0`.
 
-          - Boolean, returning `True` (`Pack{1, 0}`) for truth and `False` (`Pack{0, 0}`)
-            for falsehood:
-            `<`, `<=`, `==`, `/=`, `>=`, `>`
+    ```haskell
+    MkPair = Pack{2, 2}
+    my_tuple = MkPair 42 -42
+    ```
 
-    - **Primitive literal**
-        An integer declaration.
+    `MkPair`, a function used to create tuples uses a tag of `2` and requires two
+    arguments. `my_tuple` is now a data node that holds the values `42` and `-42`.
 
-    - **Booleans**
-        ```
-        True = Pack{1, 0}
-        False = Pack{0, 0}
-        ```
+    **NOTE:** using custom tags will not be very beneficial since the language does
+    not have `case` expressions. Rather, `List` and `Tuple` are created as language
+    inbuilts with custom de-structuring functions called `caseList` and `casePair`
+    respectively.
 
-        `True` and `False` are represented by `1` tagged and `0` tagged data
-        types. 
 
-    - **Tuples**
-        Tuples are a language inbuilt and are constructed by using `MkPair`.
+- **Primitive application**
 
-        ```haskell
-        MkPair <left> <right>
-        ```
+    ```haskell
+    <arg1> primop <arg2>
+    ```
 
-        Tuples are pattern matched on by using `casePair`
-        ```haskell
-        casePair (MkPair a b) f = f a b
-        ```
+    Primitive operation on integers.
 
-        Note that the default `fst` and `snd` are defined as follows
-        ```haskell
-        K x y = x;
-        K1 x y = y;
-        fst t = casePair t K;
-        snd t = casePair t K1;
-        ```
+    The following operations are supported:
 
-    - ** Lists
-        Lists are language inbuilts and have two constructors: `Nil` and `Cons`        
+      - Arithmetic
+        - `+`: addition
+        - `-`: subtraction
+        - `*`: multiplication
+        - `/`: integer division
 
-        ```
-        Nil
-        Cons <value> <list>
-        ```
+      - Boolean, returning `True` (`Pack{1, 0}`) for truth and `False` (`Pack{0, 0}`)
+        for falsehood:
+        `<`, `<=`, `==`, `/=`, `>=`, `>`
 
-        Lists are pattern matched by using
+- **Primitive literal**
+    An integer declaration.
 
-        ```haskell
-        caseList <nil-handler> <cons-handler>
-        ```
-        `nil-handler` is a value
-        `cons-handler` is a function that takes 2 parameters, the value in the
-        `Cons` cell and the rest of the list.
+- **Booleans**
+    ```
+    True = Pack{1, 0}
+    False = Pack{0, 0}
+    ```
+
+    `True` and `False` are represented by `1` tagged and `0` tagged data
+    types. 
+
+- **Tuples**
+    Tuples are a language inbuilt and are constructed by using `MkPair`.
+
+    ```haskell
+    MkPair <left> <right>
+    ```
+
+    Tuples are pattern matched on by using `casePair`
+    ```haskell
+    casePair (MkPair a b) f = f a b
+    ```
+
+    Note that the default `fst` and `snd` are defined as follows
+    ```haskell
+    K x y = x;
+    K1 x y = y;
+    fst t = casePair t K;
+    snd t = casePair t K1;
+    ```
+
+- ** Lists
+    Lists are language inbuilts and have two constructors: `Nil` and `Cons`        
+
+    ```
+    Nil
+    Cons <value> <list>
+    ```
+
+    Lists are pattern matched by using
+
+    ```haskell
+    caseList <nil-handler> <cons-handler>
+    ```
+    `nil-handler` is a value
+    `cons-handler` is a function that takes 2 parameters, the value in the
+    `Cons` cell and the rest of the list.
 
 #### Lack of Lambda and Case
 
