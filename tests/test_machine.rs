@@ -146,6 +146,25 @@ mod test {
         assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(200));
     }
 
+    #[test]
+    fn test_comments_simple() {
+        let m = run_machine("# this is a comment\n\
+                            main = XX; # this is also a comment\n\
+                            XX = 3");
+        assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(3));
+    }
+
+    #[test]
+    fn test_comments_folow_whitespace() {
+
+        let m = run_machine("# this is a comment\n\
+                                   # this is the next comment that follows\n\
+                                   # with whitespace\n\
+                            main = XX; # this is also a comment\n\
+                            XX = 3");
+        assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(3));
+    }
+
 
     #[test]
     fn test_foldr() {
@@ -154,7 +173,6 @@ mod test {
                              plus a b = a + b;\n\
                              foldr_go f seed x xs = (foldr f (f seed x) xs);\n\
                              foldr f seed list = caseList list seed (foldr_go f seed)");
-        print_machine(&m);
         assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(6));
 
     }

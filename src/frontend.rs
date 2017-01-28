@@ -466,6 +466,20 @@ fn is_ident_char(c: &char) -> bool {
 }
  
 
+/// eats comments till the end of the line
+/// returns whether a comment was consumed or not
+/// this is used to restart tokenization for the next line
+/// if a comment was found
+fn eat_comment(cursor: &mut TokenizerCursor) -> bool {
+    match cursor.peek() {
+        Some((_, &'#')) => { 
+            cursor.consume_while(|_, c| *c != '\n',
+                                "eating comment line");
+            return true
+        }
+        Some(_) | None => return false
+    };
+}
 
 fn tokenize(program: &str) -> Result<Vec<(Range, CoreToken)>, ParseError> {
 
@@ -476,6 +490,11 @@ fn tokenize(program: &str) -> Result<Vec<(Range, CoreToken)>, ParseError> {
     loop {
         //consume spaces
         eat_whitespace(&mut cursor);
+
+        //if a comment was eaten, restart tokenization for the next line
+        if eat_comment(&mut cursor) {
+            continue;
+        }
 
         //break out if we have exhausted the loop
         let peek = match cursor.peek() {
