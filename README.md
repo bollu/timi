@@ -171,7 +171,11 @@ machine. More is talked about this in the section [Lack of Lambda and Case](#lac
     ```
 
     Let bindings can be recursive and can refer to each other
-
+    
+    #####Example:
+    ```
+    let y = K 
+    ```
 - **Function application**
 
     ```haskell

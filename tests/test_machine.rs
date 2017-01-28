@@ -39,6 +39,24 @@ mod test {
         assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(1));
     }
 
+    #[test]
+    fn test_let_simple() {
+        let m = run_machine("main = let y = 10 in y + y");
+        assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(20));
+    }
+
+    #[test]
+    fn test_let_dependency() {
+        let m = run_machine("main = let y = x; x = 10 in y + y");
+        assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(20));
+    }
+
+    #[test]
+    fn test_let_mutual_recursion() {
+        let m = run_machine("main = let y = K x y; x = K1 y 10 in y + y");
+        assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(20));
+    }
+
 
     #[test]
     fn test_add_simple() {
