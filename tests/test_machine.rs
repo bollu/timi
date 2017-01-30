@@ -61,6 +61,16 @@ mod test {
     fn test_let_mutual_rec() {
         let m = run_machine("main = let y = K x 20; x = K1 y 10 in y + y");
         assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(20));
+
+
+    }
+
+    #[test]
+    fn test_let_mutual_rec2() {
+        //NOTE: this crashes in the interpreter if you don't handle cycles
+        //right.
+        let m = run_machine("main = let x = K 10 y; y = K x x in x");
+        assert!(m.heap.get(&m.stack.peek().unwrap()) == HeapNode::Num(10));
     }
 
     #[test]

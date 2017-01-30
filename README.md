@@ -170,11 +170,26 @@ machine. More is talked about this in the section [Lack of Lambda and Case](#lac
     let <...bindings...> in <expr>
     ```
 
-    Let bindings can be recursive and can refer to each other
+    Let bindings can be recursive and can refer to each other.
+
     
-    #####Example:
+    #####Example: simple `let`
     ```
-    let y = K 
+    > let y = 10; x = 20 in x + y
+    ...
+    === FINAL: 30 ===
+    ```
+
+    ##### Example: mututally recursive `let`
+    ```haskell
+    # keep in mind that K x y = x
+    > let x = K 10 y; y = K x x in x
+    ```
+
+    ##### Example: strict binding of `let`
+    **NOTE:** Let binds *strictly*, not lazily, so this code _will not work_
+    ```haskell
+    > let y = x; x = y in 10
     ```
 - **Function application**
 

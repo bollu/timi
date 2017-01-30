@@ -177,13 +177,11 @@ impl HeapNode {
 
 //FIXME: find a way to print recursive types
 fn format_heap_node(heap: &Heap, addr: &Addr) -> String {
-
-
-    let mut collection = HashSet::new();
-    collect_addrs_from_heap_node(heap, addr, &mut collection);
-    if collection.contains(addr) {
+    
+    if does_node_contain_recursion(heap, addr, &mut HashSet::new(), &mut HashSet::new()) {
         return "<<recursive defn>>".to_string();
     }
+    
 
     match heap.get(addr) {
         HeapNode::Indirection(addr) => format!("indirection({})", format_heap_node(heap, &addr)),
@@ -235,11 +233,66 @@ fn format_heap_node(heap: &Heap, addr: &Addr) -> String {
     }
 }
 
-//TODO: change to take Addr for node, instead od HeapNode directl
-fn collect_addrs_from_heap_node(heap: &Heap, addr: &Addr, collection: &mut HashSet<Addr>) {
+
+//TODO: implement cycle finding in directed graph
+fn does_node_contain_recursion(heap: &Heap, addr: &Addr,
+                               mut processed: &mut HashSet<Addr>,
+                               mut rec_stack: &mut HashSet<Addr>) -> bool {
+
+    fn get_node_neighbours(node: &HeapNode) -> Vec<Addr> {
+        match node {
+            &HeapNode::Indirection(ref addr) => {
+                vec![*addr]
+            }
+            &HeapNode::Application{ref fn_addr, ref arg_addr} => {
+                vec![*fn_addr, *arg_addr]
+            }
+            &HeapNode::Data{ref component_addrs, ..} => {
+                component_addrs.clone()
+            }
+            &HeapNode::Supercombinator(_) | 
+                &HeapNode::Primitive(..) |
+                &HeapNode::Num(_) => {Vec::new()}
+        }
+    };
+
+    if is_addr_phantom(addr) {
+        return false;
+    }
+
+    //we have reached a processed node, so quit
+    if processed.contains(addr) {
+        rec_stack.remove(&addr);
+        return false;
+    } else {
+        processed.insert(*addr);
+        rec_stack.insert(*addr);
+
+        let neighbours = get_node_neighbours(&heap.get(addr));
+        for n in neighbours {
+            if rec_stack.contains(&n) {
+                return true;
+            }
+            else if does_node_contain_recursion(heap, &n, processed, rec_stack) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+
+fn collect_addrs_from_heap_node(heap: &Heap, addr: &Addr, mut collection: &mut HashSet<Addr>) {
+
     if collection.contains(addr) {
         return;
     }
+    if is_addr_phantom(addr) {
+        return;
+    }
+
+    collection.insert(*addr);
 
     match heap.get(addr) {
         HeapNode::Indirection(ref addr) => {
@@ -249,13 +302,13 @@ fn collect_addrs_from_heap_node(heap: &Heap, addr: &Addr, collection: &mut HashS
         HeapNode::Application{ref fn_addr, ref arg_addr} => {
             collection.insert(*fn_addr);
             collection.insert(*arg_addr);
-            collect_addrs_from_heap_node(heap, fn_addr, collection);
-            collect_addrs_from_heap_node(heap, arg_addr, collection);
+            collect_addrs_from_heap_node(heap, fn_addr, &mut collection);
+            collect_addrs_from_heap_node(heap, arg_addr, &mut collection);
         }
         HeapNode::Data{ref component_addrs, ..} => {
             for addr in component_addrs.iter() {
                 collection.insert(*addr);
-                collect_addrs_from_heap_node(heap, addr, collection);
+                collect_addrs_from_heap_node(heap, addr, &mut collection);
             }
         }
         HeapNode::Supercombinator(_) | 
@@ -743,8 +796,8 @@ fn find_root_heap_node_for_addr(fake_addr: &Addr,
 /// these 
 /// TODO: create an alegbraic data type for Addr to represent this, and not
 /// just using negative numbers. This is a hack.
-fn is_addr_phantom(addr: Addr) -> bool {
-    addr < 0
+fn is_addr_phantom(addr: &Addr) -> bool {
+    *addr < 0
 
 }
 
@@ -799,9 +852,6 @@ fn instantiate_let_bindings(m: &mut Machine,
                         
             };
 
-            println!("variable: {} | old address: {} | new address: {}", name, fake_addr, new_addr);
-            println!("old heap:\n{:#?}", m.heap);
-
             //replace address in globals
             env.insert(name, new_addr);
             //change all the "instantiation addresses" to the actual
@@ -812,7 +862,7 @@ fn instantiate_let_bindings(m: &mut Machine,
                 //pointing to another variable
                 //TODO: make this an algebraic data type rather than using negatives
                 //let x = 10; y = x in y will work for this
-                if !is_addr_phantom(inst_addr) {
+                if !is_addr_phantom(&inst_addr) {
                     change_addr_in_heap_node(fake_addr,
                                              new_addr,
                                              inst_addr,
@@ -821,8 +871,6 @@ fn instantiate_let_bindings(m: &mut Machine,
                 }
             }
 
-            println!("env: {:#?}", env);
-            println!("new heap:\n {:#?}", m.heap);
         }
 
         Result::Ok(env)
@@ -845,7 +893,7 @@ fn change_addr_in_heap_node(fake_addr: Addr,
                             mut edited_addrs: &mut HashSet<Addr>,
                             mut heap: &mut Heap) {
 
-    if is_addr_phantom(edit_addr) {
+    if is_addr_phantom(&edit_addr) {
         return;
     }
 
@@ -1522,7 +1570,6 @@ pub fn print_machine(m: &Machine) {
 
     let mut cur_addrs : HashSet<Addr> = HashSet::new();
     for addr in m.stack.iter() {
-        cur_addrs.insert(*addr);
         collect_addrs_from_heap_node(&m.heap, addr, &mut cur_addrs);
 
     }
@@ -1551,8 +1598,6 @@ pub fn print_machine(m: &Machine) {
             "->",
             format_heap_node(&m.heap, addr),
             format!("{:#?}", node)]);
-
-
         }
         table.set_format(*FORMAT_CLEAN);
         table.printstd();
