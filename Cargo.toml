@@ -1,6 +1,6 @@
 [package]
 name = "timi"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["bollu <siddu.druid@gmail.com>"]
 description = "A visual template instantiation machine interpreter to understand how lazy functional programming languages evaluate"
 
