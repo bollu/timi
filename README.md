@@ -53,7 +53,7 @@ to download and build from source.
 
 ##### Expressions
 Type out expressions to evaluate. For example:
-```
+```haskell
 > 1 + 1
 ```
 will cause `1 + 1` to be evaluated
@@ -61,12 +61,12 @@ will cause `1 + 1` to be evaluated
 
 ##### Definitions
 Use `define <name> [<param>]* = <expr>` to create new supercombinators.
-```
+```haskell
 > define plus x y = x + y
 ```
 Will create a function called `plus` that takes two parameters `x` and `y`. To run
 this function, call
-```
+```haskell
 > plus 1 1
 ```
 
@@ -75,7 +75,7 @@ this function, call
 
 #### `>:step`
 To go through the execution step-by-step, use
-```
+```haskell
 >:step
 enabled stepping through execution
 >1 + 1
@@ -101,7 +101,7 @@ Notice that the prompt has changed to to `>>`.
 
 #### `>:nostep`
 to enable continuous execution of the entire program, use
-```
+```haskell
 >:nostep
 ```
 
@@ -114,17 +114,34 @@ as a command line parameter.
 #### Example: standalone file
 
 create a file called `standalone.tim`
-``` haskell
+```haskell
 #standalone.tim
 main = 1
 ```
 
 Run this using
-```
+```bash
 $ timi standalone.tim
 ```
 
-This will print out the program trace.
+This will print out the program trace:
+
+```haskell
+*** ITERATION: 1
+Stack - 1 items
+## top ##
+ 0x1E  ->  1  H-Num(1)
+## bottom ##
+Heap - 31 items
+ 0x1E  ->  1  H-Num(1)
+Dump
+  Empty
+Globals - 30 items
+None in Use
+===///===
+
+=== Final Value: 1 ===
+```
 
 ## Language Introduction
 The language is a small, lazily evaluated language. Lazy evaluation means that
@@ -140,11 +157,11 @@ the form:
 ```
 
 #####Example:
-```
+```haskell
 K x y = x
 ```
 Multiple top-level declarations are separated by use of `;`
-```
+```haskell
 I x = x;
 K x y = x;
 K1 x y = y
@@ -174,7 +191,7 @@ machine. More is talked about this in the section [Lack of Lambda and Case](#lac
 
     
     #####Example: simple `let`
-    ```
+    ```haskell
     > let y = 10; x = 20 in x + y
     ...
     === FINAL: 30 ===
@@ -262,15 +279,12 @@ machine. More is talked about this in the section [Lack of Lambda and Case](#lac
 
 - **Primitive literal**
     An integer declaration.
-    
     ```
-    >1
-    >2
     >3
     ```
 
 - **Booleans**
-    ```
+    ```haskell
     True = Pack{1, 0}
     False = Pack{0, 0}
     ```
@@ -301,7 +315,7 @@ machine. More is talked about this in the section [Lack of Lambda and Case](#lac
 - ** Lists
     Lists are language inbuilts and have two constructors: `Nil` and `Cons`        
 
-    ```
+    ```haskell
     Nil
     Cons <value> <list>
     ```
@@ -311,9 +325,10 @@ machine. More is talked about this in the section [Lack of Lambda and Case](#lac
     ```haskell
     caseList <nil-handler> <cons-handler>
     ```
-    `nil-handler` is a value
-    `cons-handler` is a function that takes 2 parameters, the value in the
-    `Cons` cell and the rest of the list.
+
+    - `nil-handler` is a value
+    - `cons-handler` is a function that takes 2 parameters, the value in the
+    - `Cons` cell and the rest of the list.
 
 - **Comments**
     ```python
@@ -355,7 +370,7 @@ into a `Heap`.
 
 ##### Example: Sample program `1 + 1`
 Consider the program `1 + 1`. The initial state of the machine is
-```
+```haskell
 >1 + 1
 *** ITERATION: 1
 Stack - 1 items
@@ -383,7 +398,7 @@ whole expression sits on top of the stack, waiting to be evaluated.
 
 Consider the definitions:
 
-```
+```haskell
 S f g x = f x (g x)
 K x y = x
 ```
@@ -391,7 +406,7 @@ K x y = x
 
 Now, let us understand how the program `S K K 3` evaluates.
 
-```
+```haskell
 *** ITERATION: 1
 Stack - 1 items
 ## top ##
@@ -529,7 +544,7 @@ gets evaluated first.
 
 When `K` is expanded, it expands like so:
 
-```
+```haskell
 *** ITERATION: 8
 Stack - 1 items
 ## top ##
@@ -548,7 +563,7 @@ function bodies without evaluating arguments.
 `+`, `-`, etc. are similar in some ways - they also follow the
 same model of unwinding the spine of the execution.
 
-```
+```haskell
 >1 + 1
 *** ITERATION: 1
 Stack - 1 items
@@ -595,7 +610,7 @@ another address.
 
 We will consider the example where we define `x = I 3` where `I x = x`.
 
-```
+```haskell
 >define x = I 3
 >x
 *** ITERATION: 1
@@ -632,7 +647,7 @@ Stack - 1 items
 
 Now that we have run `x` once, let us re-run it and see what the value is
 
-```
+```haskell
 >x
 *** ITERATION: 1
 Stack - 1 items
@@ -679,7 +694,7 @@ how primitives such as `+`, `-`, etc. work.
 
 Let us consider the sample code `(I 1) + 3` where `I x = x` (Identity).
 
-```
+```haskell
 >I 1 + 3
 *** ITERATION: 1
 Stack - 1 items
@@ -715,7 +730,7 @@ to be performed. Thus, we need to have some way of performing the computation.
 The solution is to migrate the current stack into the Dump, and push `I 1` on top
 of the stack and have it evaluate.
 
-```
+```haskell
 *** ITERATION: 4
 Stack - 1 items
 ## top ##
@@ -743,7 +758,7 @@ stack contents.
 
 We proceed to see I 1 get evaluated.
 
-```
+```haskell
 *** ITERATION: 5
 Stack - 2 items
 ## top ##
@@ -774,13 +789,13 @@ Dump
 Notice how in _Iteration 6_, the rewrite of the `I 1` at `0x2A` also causes
 the stack to change. The stack now has
 
-```
+```haskell
 0x2A  ->  (+ indirection(1))      H-Ap(0xE $ 0x29)
 ```
 
 while at _Iteration 5_ had
 
-```
+```haskell
 0x2A  ->  (+ (I 1))      H-Ap(0xE $ 0x29)
 ```
 
@@ -793,7 +808,7 @@ So, we know that the value of `(I 1)` is `1`.
 
 We have the rest of the computation in the Dump which we bring back.
 
-```
+```haskell
 *** ITERATION: 7
 Stack - 3 items
 ## top ##
@@ -814,14 +829,14 @@ Dump
 ```
 
 At _Iteration 7_, the stack has
-```
+```haskell
  0x2A  ->  (+ indirection(1))      H-Ap(0xE $ 0x29)
 ```
 We remove the indirection by "short circuiting" the indirection and replacing
 it with the value we want.
 
 
-```
+```haskell
 *** ITERATION: 9
 Stack - 2 items
 ## top ##
