@@ -12,9 +12,11 @@ use rustyline::completion::Completer;
 mod frontend;
 mod ir;
 mod machine;
+mod pretty_print;
 
 use frontend::*;
 use machine::*;
+use pretty_print::*;
 
 
 fn run_step_interaction<C>(rl: &mut Editor<C>,

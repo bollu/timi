@@ -39,3 +39,5 @@ pub mod frontend;
 /// Internal Representation (IR) of the machine. Contains the data
 /// representation used by the machine.
 pub mod ir; 
+/// pretty printing of machine state & errors
+pub mod pretty_print;

@@ -92,14 +92,3 @@ impl fmt::Debug for SupercombDefn {
 /// A core program is a list of top-level supercombinator
 /// definitions
 pub type CoreProgram = Vec<SupercombDefn>;
-
-
-
-use self::ansi_term::Colour::{Green};
-
-/// Format an address to be of the form `0xaddress_in_hex`. Used for
-/// pretty printing addresses
-pub fn format_addr_string(addr: &Addr)  -> String {
-    format!("{}{}", Green.paint("0x"), Green.underline().paint(format!("{:X}", addr)))
-}
-
