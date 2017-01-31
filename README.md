@@ -17,7 +17,7 @@ lazily evaluate programming language evaluates.
 - [Interpreter Options and Usage](#interpreter-options)
 - [Executing `.tim` files](#executing-tim-files)
 - [Language Introduction](#language-introduction)
-    - [Top level (Supercombinators)](#top-level-(supercombinators))
+    - [Top level / Supercombinators](#top-level-/-supercombinators)
     - [The `main` value](#the-main-value)
     - [Expressions](#expressions)
     - [Lack of Lambda and Case](#lack-of-lambda-and-case)
@@ -26,7 +26,7 @@ lazily evaluate programming language evaluates.
     - [Evaluation](#evaluation)
     - [Instantiation](#instantiation)
     - [Primitives](#primitives)
-    - [How does evaluation provide laziness?](#how-does-evaluation-provide-laziness-?)
+    - [How does evaluation provide laziness?](#how-does-evaluation-provide-laziness?)
     - [The Dump](#the-dump)
 - [Roadmap](#roadmap)
 - [Design Decisions](#design-decisions)
@@ -148,7 +148,7 @@ The language is a small, lazily evaluated language. Lazy evaluation means that
 evaluation is delayed till a value is needed.
 
 
-#### Top level (Supercombinators)
+#### Top level / Supercombinators
 
 Top level declarations (which are also called *supercombinators*) are of
 the form:
