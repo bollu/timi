@@ -1,3 +1,5 @@
+//!  
+//! The machine state is formed out of 4 components: `(Stack, Heap, Dump, Globals)`
 extern crate ansi_term;
 
 use std::fmt;
@@ -18,27 +20,47 @@ use prettytable::Table;
 use prettytable::format::consts::FORMAT_CLEAN;
 
 
-//primitive operations on the machine
+/// Primitive operations that are implemented directly in the machine
 #[derive(Clone, PartialEq, Eq)]
 pub enum MachinePrimOp {
+    /// Add two machine integers
     Add,
+    /// Subtract two machine integers
     Sub,
+    /// Multiply two machine integers
     Mul,
+    /// Divide two machine integers
     Div,
+    /// Negate a machine integer
     Negate,
+    /// Compare two integers and return if LHS > RHS
     G,
+    /// Compare two integers and return if LHS >= RHS
     GEQ,
+    /// Compare two integers and return if LHS < RHS
     L,
+    /// Compare two integers and return if LHS >= RHS
     LEQ,
+    /// Compare two integers and return if LHS == RHS
     EQ,
+    /// Compare two integers and return if LHS != RHS
     NEQ,
+    /// Construct a complex object which is tagged with `DataTag`
+    /// and takes `arity` number of components.
     Construct {
+        /// Tag used to disambiguate between different data objects
         tag: DataTag,
+        /// number of components that the complex object has.
         arity: u32
     },
+    /// Check a predicate and run the `then` or `else` clause
     If,
+    /// Explode a tuple and pass the `left` and `right` components of a tuple to a function
     CasePair,
+    /// Perform case analysis on a list.
     CaseList,
+    /// Undefined. Machine will quit on reaching this address. Useful for testing code that
+    /// should never run
     Undef,
 }
 
@@ -69,6 +91,7 @@ impl fmt::Debug for MachinePrimOp {
 
 
 #[derive(Clone,PartialEq,Eq,Debug)]
+/// Used to tag data in `HeapNode::Data`.
 pub enum DataTag {
     TagFalse = 0,
     TagTrue = 1,
@@ -92,21 +115,31 @@ fn raw_tag_to_data_tag (raw_tag: u32) -> Result<DataTag, MachineError> {
     }
 } 
 
-//heap nodes
+
 #[derive(Clone, PartialEq, Eq)]
+/// an element on the [`Heap`](struct.HeapNode) of the machine.
 pub enum HeapNode {
+    /// Function application of function at `fn_addr` to function at `arg_addr`
     Application {
         fn_addr: Addr,
         arg_addr: Addr
     },
+    /// a Supercombinator (top level function) that is created on the heap
     Supercombinator(SupercombDefn),
+    /// Raw integer
     Num(i32),
+    /// An indirection from the current heap address to another heap address.
+    /// Used to reduce work done by machine by preventing re-computation.
     Indirection(Addr),
+    /// A primitive that needs to be executed.
     Primitive(MachinePrimOp),
+    /// Complex data on the Heap with tag `tag`. Components are at the
+    /// `component_addrs`.
     Data{tag: DataTag, component_addrs: Vec<Addr>}
 }
 
 
+/// makes the heap tag bold
 fn format_heap_tag(s: &str) -> String {
     format!("{}", Style::new().bold().paint(s))
 }
@@ -175,10 +208,12 @@ impl HeapNode {
 }
 
 
-//FIXME: find a way to print recursive types
+/// format a heap node, by pretty printing the node.
+/// If the node contains recursive structure, this will handle it and
+/// print `<<recursive_defn>>`
 fn format_heap_node(heap: &Heap, addr: &Addr) -> String {
     
-    if does_node_contain_recursion(heap, addr, &mut HashSet::new(), &mut HashSet::new()) {
+    if is_heap_node_cyclic(heap, addr, &mut HashSet::new(), &mut HashSet::new()) {
         return "<<recursive defn>>".to_string();
     }
     
@@ -234,8 +269,9 @@ fn format_heap_node(heap: &Heap, addr: &Addr) -> String {
 }
 
 
-//TODO: implement cycle finding in directed graph
-fn does_node_contain_recursion(heap: &Heap, addr: &Addr,
+/// returns if the Heap node at address `addr`
+/// contains a cyclic definition or not.
+fn is_heap_node_cyclic(heap: &Heap, addr: &Addr,
                                mut processed: &mut HashSet<Addr>,
                                mut rec_stack: &mut HashSet<Addr>) -> bool {
 
@@ -273,7 +309,7 @@ fn does_node_contain_recursion(heap: &Heap, addr: &Addr,
             if rec_stack.contains(&n) {
                 return true;
             }
-            else if does_node_contain_recursion(heap, &n, processed, rec_stack) {
+            else if is_heap_node_cyclic(heap, &n, processed, rec_stack) {
                 return true;
             }
         }
@@ -283,7 +319,19 @@ fn does_node_contain_recursion(heap: &Heap, addr: &Addr,
 }
 
 
-fn collect_addrs_from_heap_node(heap: &Heap, addr: &Addr, mut collection: &mut HashSet<Addr>) {
+/// Gives addresses pointed to in the heap node at address `addr`.
+/// This is recursive and produces a list of _all_ addresses by walking the
+/// graph of address dependencies.
+///
+/// # Use Case
+/// Collect all addresses that are currently being used.
+/// That way, we don't need to print all of the heap nodes during
+/// pretty-printing of machine state.
+/// 
+/// This is useful since the heap grows quite large very quickly.
+fn collect_addrs_from_heap_node(heap: &Heap,
+                                addr: &Addr,
+                                mut collection: &mut HashSet<Addr>) {
 
     if collection.contains(addr) {
         return;
@@ -318,6 +366,13 @@ fn collect_addrs_from_heap_node(heap: &Heap, addr: &Addr, mut collection: &mut H
 }
 
 
+/// Tries to unwrap a heap node to an application node,
+/// fails if the heap node is not application.
+///
+/// # Use Case
+/// unwrapping application nodes is a very common process
+/// when implementing primitives. This abstracts out the process
+/// and reduces code duplication
 fn unwrap_heap_node_to_ap(node: HeapNode) -> 
 Result<(Addr, Addr), MachineError> {
 
@@ -330,10 +385,19 @@ Result<(Addr, Addr), MachineError> {
     }
 }
 
-// a dump is a vector of stacks
+/// Dump is a stack of [machine `Stack`](struct.Stack.html).
+///
+/// # Use Case
+/// It is used to store intermediate execution of primitives.
+/// That way, a complex computation can be stored on a dump. 
+/// A sub computation can be run, after which the complex computation can be
+/// brought back into scope.
 pub type Dump = Vec<Stack>;
 
-//stack of addresses of nodes. "Spine"
+/// Stack is a stack of [`Addr`](../ir/type.Addr.html).
+/// 
+/// # Use Case
+/// Function application is "unwound" on the stack.
 #[derive(Clone,PartialEq,Eq,Debug)]
 pub struct Stack {
     stack: Vec<Addr>
@@ -346,33 +410,47 @@ impl Stack {
         }
     }
 
+    /// return number of elements on the stack.
     pub fn len(&self) -> usize {
         self.stack.len()
     }
 
+    /// push an address on top of the stack.
     pub fn push(&mut self, addr: Addr) {
         self.stack.push(addr)
     }
 
+    /// pops the top of the stack.
+    ///
+    /// # Errors
+    /// returns an error if the stack is empty
     pub fn pop(&mut self) -> Result<Addr, MachineError> {
         self.stack.pop().ok_or("top of stack is empty".to_string())
     }
 
+    /// peeks the top of the stack.
+    ///
+    /// *NOTE:*  does _not_ remove the element on the top of the stack.
     pub fn peek(&self) -> Result<Addr, MachineError> {
         self.stack.last().cloned().ok_or("top of stack is empty to peek".to_string())
     }
 
+    /// returns an iterator to the stack elements. 
+    ///
+    /// *NOTE:* top of the stack is returned first, bottom of the stack
+    /// is returned last.
     pub fn iter(&self) -> std::iter::Rev<std::slice::Iter<Addr>> {
         self.stack.iter().rev()
     }
 
 }
 
-//maps names to addresses in the heap
-pub type Bindings = HashMap<Name, Addr>;
+/// Mapping from [variable names](../ir/type.Name.html) to
+/// [addresses](type.Addr.html).
+pub type Environment = HashMap<Name, Addr>;
 
-//maps addresses to machine Nodes
 #[derive(Clone)]
+/// maps Address to Heap nodes. 
 pub struct Heap {
     heap: HashMap<Addr, HeapNode>,
     next_addr: Addr
@@ -400,7 +478,8 @@ impl Heap {
         }
     }
 
-    //allocate the HeapNode on the heap
+    /// Allocate the HeapNode on the heap. returns the address at which
+    /// the node was allocated.
     pub fn alloc(&mut self, node: HeapNode) -> Addr {
         let addr = self.next_addr;
         self.next_addr += 1;
@@ -409,6 +488,12 @@ impl Heap {
         addr
     }
 
+    /// returns the heap node at address Addr
+    ///
+    /// ### Panics
+    ///
+    /// `get` panics if the address does not exist on the heap. To check
+    /// if an address is on the heap, use [contains](struct.Heap.html#method.contains)
     pub fn get(&self, addr: &Addr) -> HeapNode {
         self.heap
             .get(&addr)
@@ -416,6 +501,10 @@ impl Heap {
             .expect(&format!("expected heap node at addess: {}", addr))
     }
 
+    /// rewrites the address `addr` with new heap node `node`
+    ///
+    /// ### Panics
+    /// if the heap node at `addr` does not exist, this function will panic
     pub fn rewrite(&mut self, addr: &Addr, node: HeapNode) {
         assert!(self.heap.contains_key(addr),
         "asked to rewrite (address: {}) with \
@@ -424,10 +513,12 @@ impl Heap {
         self.heap.insert(*addr, node);
     }
 
+    /// returns the number of elements in the heap
     pub fn len(&self) -> usize {
         self.heap.len()
     }
 
+    /// returns whether the heap contains an element at address `addr`.
     pub fn contains(&self, addr: &Addr) -> bool {
         match self.heap.get(&addr) {
             Some(_) => true,
@@ -437,25 +528,31 @@ impl Heap {
 
 }
 
-//state of the machine
+/// Options used to configure the machine
 #[derive(Clone)]
 pub struct MachineOptions {
-    update_heap_on_sc_eval: bool,
+    /// controls whether a function application node should be rewritten
+    /// with the final value after evaluation.
+    ///
+    /// Enable this to see the use of `Indirection` nodes.
+    pub update_heap_on_sc_eval: bool,
 }
 
 #[derive(Clone)]
+/// the core machine that runs our program.
 pub struct Machine {
     pub stack : Stack,
     pub heap : Heap,
-    pub globals: Bindings,
+    pub globals: Environment,
     pub dump: Dump,
     pub options: MachineOptions,
 }
 
+/// represents an error during the execution of the machine
 pub type MachineError = String;
 
 
-
+/// converts a boolean into a HeapNode for True and False
 fn bool_to_heap_node(b: bool) -> HeapNode {
     if b {
         HeapNode::Primitive(MachinePrimOp::Construct{tag: DataTag::TagTrue,
@@ -468,6 +565,7 @@ fn bool_to_heap_node(b: bool) -> HeapNode {
 }
 
 
+/// constructs the prelude program for the machine.
 fn get_prelude() -> CoreProgram {
 
     let program_str = "I x = x;\n\
@@ -491,6 +589,7 @@ fn get_prelude() -> CoreProgram {
     }
 }
 
+/// mapping between strings for primitives and the primitive operation
 fn get_primitives() -> Vec<(Name, MachinePrimOp)> {
     [("+".to_string(), MachinePrimOp::Add),
     ("-".to_string(), MachinePrimOp::Sub),
@@ -511,8 +610,15 @@ fn get_primitives() -> Vec<(Name, MachinePrimOp)> {
 }
 
 
-fn heap_build_initial(sc_defs: CoreProgram, prims: Vec<(Name, MachinePrimOp)>) 
-    -> (Heap, Bindings) {
+/// builds the initial heap and environment corresponding to the
+/// program given.
+///
+/// This allocates heap nodes for supercombinators in `sc_defs` and
+/// primitives in `prims` and maps their names
+/// to the allocated addresses in `Environment`.
+fn build_heap_and_env_for_program(sc_defs: CoreProgram,
+                                  prims: Vec<(Name, MachinePrimOp)>) 
+    -> (Heap, Environment) {
 
         let mut heap = Heap::new();
         let mut globals = HashMap::new();
@@ -537,8 +643,9 @@ fn heap_build_initial(sc_defs: CoreProgram, prims: Vec<(Name, MachinePrimOp)>)
     }
 
 impl Machine {
+    /// Create a minimal machine that has the prelude and primitives instantiated.
     pub fn new_minimal() -> Machine {
-        let (initial_heap, globals) = heap_build_initial(get_prelude(),
+        let (initial_heap, globals) = build_heap_and_env_for_program(get_prelude(),
         get_primitives());
 
         Machine {
@@ -553,6 +660,13 @@ impl Machine {
 
     }
 
+    /// Create a machine with the given program, which is assured to have `main` as a
+    /// supercombinator.
+    /// This creates the prelude, primitives, as well as all the supercombinators in `program`.
+    /// It sets up the stack to have `main` on the top of the stack.
+    ///
+    /// ### Errors
+    /// If `program` does not have `main`, a `MachineError` is returned.
     pub fn new_with_main(program: CoreProgram) -> Result<Machine, MachineError> {
         let mut m = Machine::new_minimal();
         for sc in program.into_iter() {
@@ -569,6 +683,12 @@ impl Machine {
         Result::Ok(m)
     }
 
+    /// Add the supercombinator to the machine. 
+    ///
+    /// This will allocate the supercombinator on the heap and create a binding
+    /// in the environment to the name of the supercombinator.
+    /// 
+    /// Returns the address of allocation of the supercombinator
     pub fn add_supercombinator(&mut self, sc_defn: SupercombDefn) -> Addr{
         let name = sc_defn.name.clone();
         let node = HeapNode::Supercombinator(sc_defn);
@@ -580,7 +700,10 @@ impl Machine {
         addr
     }
 
-    pub fn set_main_expr(&mut self, expr: &CoreExpr) {
+    /// Creates a supercombinator, names it `main` and sets its body to the
+    /// given expression. Then starts execution of the given expression by
+    /// putting main on top of the stack.
+    pub fn run_expr_as_main(&mut self, expr: &CoreExpr) {
         let main_defn = SupercombDefn {
             name: "main".to_string(),
             body: expr.clone(),
@@ -591,6 +714,10 @@ impl Machine {
         self.stack = Stack { stack: vec![main_addr] };
     }
 
+    /// returns whether the machine is in final state or not.
+    /// ### Panics
+    ///
+    /// This panics if the stack is empty.
     pub fn is_final_state(&self) -> bool {
         assert!(self.stack.len() > 0, "expect stack to have at least 1 node");
 
@@ -603,12 +730,15 @@ impl Machine {
         }
     }
 
+    /// dump the current stack into the dump, and create a fresh stack
     fn dump_stack(&mut self, stack: Stack) {
         self.dump.push(stack);
         self.stack = Stack::new();
     }
 
-    pub fn step(&mut self) -> Result<(), MachineError>{
+    /// inspect the top of the stack and take a step in interpretation if
+    /// we are not in the final state
+    pub fn step(&mut self) -> Result<(), MachineError> { 
         //top of stack
         let tos_addr : Addr = try!(self.stack.peek());
         let heap_val = self.heap.get(&tos_addr);
@@ -626,9 +756,10 @@ impl Machine {
         }
     }
 
-    //actually step the computation
-    fn heap_node_step(&mut self, heap_val: &HeapNode) -> Result<(), MachineError> {
-        match heap_val {
+    /// perform an interpretation step by case analysis of the given heap node
+    /// (which is the top of the stack)
+    fn heap_node_step(&mut self, tos_node: &HeapNode) -> Result<(), MachineError> {
+        match tos_node {
             &HeapNode::Num(n) => {
                 return Result::Err(format!("number applied as a function: {}", n));
             }
@@ -718,7 +849,10 @@ impl Machine {
     }
 
 
-    fn instantiate(&mut self, expr: CoreExpr, env: &Bindings) -> Result<Addr, MachineError> {
+    /// given a supercombinator, realize it on the heap
+    /// by recursively instantiating its body, with respect to the environment `env.
+    /// The environment is used to find variable names.
+    fn instantiate(&mut self, expr: CoreExpr, env: &Environment) -> Result<Addr, MachineError> {
         match expr {
             CoreExpr::Let(CoreLet{expr: let_rhs, bindings, ..}) => {
                 let let_env = try!(instantiate_let_bindings(self, env, bindings));
@@ -811,11 +945,11 @@ fn is_addr_phantom(addr: &Addr) -> bool {
 /// replacing addresses, `y` will get the temporary address of `x`.
 /// so, we need to use the "real" addresses of values
 fn instantiate_let_bindings(m: &mut Machine,
-                            orig_env: &Bindings,
+                            orig_env: &Environment,
                             bindings: Vec<(Name, Box<CoreExpr>)>) 
-    -> Result<Bindings, MachineError> {
+    -> Result<Environment, MachineError> {
 
-        let mut env : Bindings = orig_env.clone();
+        let mut env : Environment = orig_env.clone();
 
         for (&(ref name, _), addr) in bindings.iter().zip(1..(bindings.len()+2))  {
             env.insert(name.clone(), -(addr as i32));
@@ -1328,6 +1462,7 @@ fn run_constructor(m: &mut Machine,
     Result::Ok(())
 }
 
+/// Runs the given supercombinator by instantiating it on top of the stack.
 fn run_supercombinator(m: &mut Machine, sc_defn: &SupercombDefn) -> Result<(), MachineError> {
 
     //pop the supercombinator
@@ -1379,36 +1514,28 @@ fn run_supercombinator(m: &mut Machine, sc_defn: &SupercombDefn) -> Result<(), M
 }
 
 
-//make an environment for the execution of the Supercombinator
+/// Make an environment for the execution of the Supercombinator.
+/// let f a b c = <body>
+///
+/// if a function call of the form `(f x y z)` was made,
+/// the stack will look like
+/// ```haskell
+/// ---top---
+/// f
+/// f $ x <- first parameter x
+/// (f $ x) $ y <- second parameter y
+/// ((f $ x) $ y) $ z <- third parameter z
+/// --------
+/// ```
 fn make_supercombinator_env(sc_defn: &SupercombDefn,
                             heap: &Heap,
                             stack_args:&Vec<Addr>,
-                            globals: &Bindings) -> Result<Bindings, MachineError> {
+                            globals: &Environment) -> Result<Environment, MachineError> {
 
     assert!(stack_args.len() == sc_defn.args.len());
 
     let mut env = globals.clone();
 
-    /*
-     * let f a b c = <body>
-     *
-     * if a function call of the form f x y z was made,
-     * the stack will look like
-     * ---top---
-     * f
-     * f x
-     * f x y
-     * f x y z
-     * --------
-     *
-     * the "f" will be popped beforehand (that is part of the contract
-     * of calling make_supercombinator_env)
-     *
-     *
-     * So, we go down the stack, removing function applications, and
-     * binding the RHS to the function parameter names.
-     *
-     */
     for (arg_name, application_addr) in
         sc_defn.args.iter().zip(stack_args.iter()) {
 
@@ -1422,10 +1549,10 @@ fn make_supercombinator_env(sc_defn: &SupercombDefn,
 
 
 
-//represents what happens when you try to access a heap node for a 
-//primitive run. Either you found the required heap node,
-//or you ask to setup execution since there is a frozen supercombinator
-//node or something else that needs to be evaluated
+/// represents what happens when you try to access a heap node for a 
+/// primitive run. Either you found the required heap node,
+/// or you ask to setup execution since there is a frozen supercombinator
+/// node or something else that needs to be evaluated
 enum HeapAccessValue<T> {
     Found(T),
     SetupExecution
@@ -1433,11 +1560,11 @@ enum HeapAccessValue<T> {
 
 type HeapAccessResult<T> = Result<HeapAccessValue<T>, MachineError>;
 
-//get a heap node of the kind that handler wants to get,
-//otherwise setup the heap so that unevaluated code
-//is evaluated to get something of this type
-//TODO: check if we can change semantics so it does not need to take the
-//application node as the parameter that's a little awkward
+/// get a heap node of the kind that handler wants to get,
+/// otherwise setup the heap so that unevaluated code
+/// is evaluated to get something of this type
+/// TODO: check if we can change semantics so it does not need to take the
+/// application node as the parameter that's a little awkward
 fn setup_heap_node_access<F, T>(m: &mut Machine,
                                 stack_to_dump: Stack,
                                 ap_addr: Addr,
@@ -1473,6 +1600,10 @@ where F: Fn(HeapNode) -> Result<T, MachineError> {
     Result::Ok(HeapAccessValue::Found(access_result))
 }
 
+
+/// try to access the heap node as a number.
+///
+/// returns an error if the heap node is not a `Num` node
 fn heap_try_num_access(h: HeapNode) -> Result<i32, MachineError> {
     match h {
         HeapNode::Num(i) => Result::Ok(i),
@@ -1482,10 +1613,11 @@ fn heap_try_num_access(h: HeapNode) -> Result<i32, MachineError> {
 }
 
 
+/// try to access the heap node as a boolean
+///
+/// returns an error if the heap node is not data with `TagTrue` or `TagFalse`.
 fn heap_try_bool_access(h: HeapNode) -> Result<bool, MachineError> {
     match h {
-        //TODO: make a separate function that takes HeapNode::Data
-        //and returns the correct rust boolean
         HeapNode::Data{tag: DataTag::TagFalse, ..} => Result::Ok(false),
         HeapNode::Data{tag: DataTag::TagTrue, ..} => Result::Ok(true),
         other @ _ => Result::Err(format!(
@@ -1493,6 +1625,7 @@ fn heap_try_bool_access(h: HeapNode) -> Result<bool, MachineError> {
     }
 }
 
+/// try to access the heap node as a pair
 fn heap_try_pair_access(h: HeapNode) -> Result<(Addr, Addr), MachineError> {
     match h {
         HeapNode::Data{tag: DataTag::TagPair, ref component_addrs} => {
@@ -1509,7 +1642,11 @@ fn heap_try_pair_access(h: HeapNode) -> Result<(Addr, Addr), MachineError> {
     }
 }
 
+/// Represents the result of accessing a heap node as a list.
+/// either a `Nil` is found, or a `Cons` of two addresses is found
 enum ListAccess { Nil, Cons (Addr, Addr) }
+
+/// try to access the heap node as list.
 fn heap_try_list_access(h: HeapNode) -> Result<ListAccess, MachineError> {
     match h {
         HeapNode::Data{tag: DataTag::TagListNil,..} => {
@@ -1529,14 +1666,19 @@ fn heap_try_list_access(h: HeapNode) -> Result<ListAccess, MachineError> {
     }
 }
 
-
-pub fn machine_get_final_val(m: &Machine) -> String {
+/// returns the pretty-printed version of the final heap node on top
+/// of the stack.
+///
+/// ### Panics
+/// this function panics if the machine is not in the final state
+pub fn machine_get_final_val_string(m: &Machine) -> String {
     assert!(m.is_final_state());
     format_heap_node(&m.heap, &m.stack.peek().unwrap())
 }
 
 
 
+/// pretty print the given stack `s`
 fn print_stack(heap: &Heap, s: &Stack) {
     if s.len() == 0 {
 
@@ -1561,13 +1703,8 @@ fn print_stack(heap: &Heap, s: &Stack) {
     print!("{}", Black.underline().paint("## bottom ##\n"));
 }
 
-pub fn print_machine_stack(m: &Machine) {
-    print_stack(&m.heap, &m.stack);
-}
-
-
+/// pretty print the machine
 pub fn print_machine(m: &Machine) {
-
     let mut cur_addrs : HashSet<Addr> = HashSet::new();
     for addr in m.stack.iter() {
         collect_addrs_from_heap_node(&m.heap, addr, &mut cur_addrs);

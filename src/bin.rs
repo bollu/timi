@@ -19,7 +19,6 @@ use machine::*;
 
 fn run_step_interaction<C>(rl: &mut Editor<C>,
                            iter_count: usize,
-                           m: &Machine,
                            pause_per_step: &mut bool) ->
     Result<(), ReadlineError>
     where C: Completer {
@@ -37,13 +36,9 @@ fn run_step_interaction<C>(rl: &mut Editor<C>,
         else if input == ":help" {
             println!("*** HELP ***");
             println!(":help - bring up help");
-            println!(":stack - show current state");
             println!(":nostep - disable stepping and run through the code");
             println!("n - go to next state");
        }
-        else if input == ":stack" {
-            print_machine_stack(m);
-        }
         else if input == ":nostep" {
             *pause_per_step = false;
             return Result::Ok(());
@@ -67,7 +62,7 @@ fn run_machine_step(m: &mut Machine, iteration: usize) -> Result<(), MachineErro
 
     print_machine(&m);
     if m.is_final_state() {
-        println!("=== FINAL: {} ===", machine_get_final_val(&m));
+        println!("=== FINAL: {} ===", machine_get_final_val_string(&m));
     };
 
     Result::Ok(())
@@ -86,7 +81,7 @@ where C: Completer {
         }
 
         if *pause_per_step {
-            try!(run_step_interaction(rl, iteration, m, pause_per_step));
+            try!(run_step_interaction(rl, iteration, pause_per_step));
         }
 
         if m.is_final_state() {
@@ -169,7 +164,7 @@ fn interpreter() {
                     continue;
                 }
             };
-            m.set_main_expr(&expr);
+            m.run_expr_as_main(&expr);
             
             match run_machine(&mut rl, &mut m, &mut pause_per_step) {
                 Result::Ok(()) => {},

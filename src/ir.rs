@@ -1,18 +1,26 @@
+//! The expression type that is parsed by the Parser is held in `CoreExpr`
+//!
+//! a Core program ([`CoreProgram`](type.CoreProgram.html)) is a collection
+//! of supercombinator(top-level) definitions
+ //! top-level consists of `SupercombDefn`
 extern crate ansi_term;
 
 use std::fmt;
 
+/// A Heap address.
 pub type Addr = i32;
 pub type Name = String;
 
-pub type CoreVariable = Name;
-
 #[derive(Clone, PartialEq, Eq, Debug)]
+/// Core Expression struct to hold let-bindings.
+/// 
+/// a binding is a mapping from a variable name to the bound expression
 pub struct CoreLet {
+    ///bindings in the `let` expression
     pub bindings: Vec<(Name, Box<CoreExpr>)>,
+    /// Expression that is at the `in ...` part of the let
     pub expr: Box<CoreExpr>
 }
-
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum CoreExpr {

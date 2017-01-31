@@ -7,26 +7,29 @@ use std::cmp; //for max
 use ir::*;
 use std::str;
 
-/// represents a Point in a file
+/// represents a position in a file, both in terms of `(line, col)` and 
+/// in terms of seek index from the file
 #[derive(Debug, Clone, Copy)]
-struct Point {
-    /// index is the raw seek index starting from 0
-    index: usize,
-    /// the line number of the location
-    line: usize,
-    /// the column number
-    col: usize
+pub struct Point {
+    /// Raw seek index. This point is the `index` element of the file as a stream. 0 indexed
+    pub index: usize,
+    /// the line number of the point. 0 indexed
+    pub line: usize,
+    /// the column number of the point.  0 indexed
+    pub col: usize
 }
 
 impl Point {
-    fn new(index: usize, line: usize, col: usize) -> Point {
+    pub fn new(index: usize, line: usize, col: usize) -> Point {
         Point {
             index: index,
             line: line,
             col: col
         }
     }
-    fn as_range(&self) -> Range {
+    
+    /// convert the `Point` to a `Range` starting and ending at the same `Point`
+    pub fn as_range(&self) -> Range {
         Range {
             start: *self,
             end: *self
@@ -34,16 +37,28 @@ impl Point {
     }
 }
 
-/// represents a value of T associated with a start and an end Point
+/// Represents a range in a file from the start point to the end point.
+/// The Range is `[start, end]`.
+///
+///
+/// # Examples
+///
+/// Used to track regions in the source code from where tokens came from. Used
+/// during error reporting to pretty-print source code blocks
+///
+///**NOTE:** 
+/// `start = end` represents a range pointing to one character in a file.
 #[derive(Debug, Clone, Copy)]
-struct Range {
-    start: Point,
-    end: Point,
+pub struct Range {
+    pub start: Point,
+    pub end: Point,
 }
 
 
 pub enum ParseErrorKind {
+    /// End of file with the error string inside it
     EOF(String),
+    /// 
     UnexpectedToken{ expected: Vec<CoreToken>, found: CoreToken, error: String },
     Generic(String)
 }
@@ -69,7 +84,7 @@ impl fmt::Debug for ParseErrorKind {
 pub struct ParseError(Range, ParseErrorKind);
 
 impl ParseError {
-    fn generic<T>(range: Range, s: String) -> Result<T, ParseError> {
+    pub fn generic<T>(range: Range, s: String) -> Result<T, ParseError> {
         ParseError(range, ParseErrorKind::Generic(s)).into()
     }
 
@@ -587,7 +602,7 @@ Result<CoreExpr, ParseError> {
 
 //defn := <ident> "=" <expr>
 fn parse_defn(mut c: &mut ParserCursor) ->
-Result<(CoreVariable, Box<CoreExpr>), ParseError> {
+Result<(Name, Box<CoreExpr>), ParseError> {
 
     match try!(c.consume("looking for identifier of let binding LHS")) {
         (_, CoreToken::Ident(name)) => {
