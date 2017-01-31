@@ -9,8 +9,7 @@ TIMi - Template Instantiation Machine Interpreter
 A visual, user-friendly implementation of a template instantiation machine. Built to understand how 
 lazily evaluate programming language evaluates.
 
-[![asciicast](https://asciinema.org/a/231suy4qkq3e635yswnlqoov9.png)](https://asciinema.org/a/231suy4qkq3e635yswnlqoov9)
-
+[![asciicast](https://asciinema.org/a/101421.png)](https://asciinema.org/a/101421)
 
 # Table of Contents
 - [Quickstart](#quickstart)
