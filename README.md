@@ -14,19 +14,19 @@ lazily evaluate programming language evaluates.
 
 # Table of Contents
 - [Quickstart](#quickstart)
-- [Interpreter Options & Usage](#interpreter-options)
+- [Interpreter Options and Usage](#interpreter-options)
 - [Executing `.tim` files](#executing-tim-files)
 - [Language Introduction](#language-introduction)
-    - [Top level (Supercombinators)](#top-level)
-    - [The `main` value](#main-value)
+    - [Top level (Supercombinators)](#top-level-(supercombinators))
+    - [The `main` value](#the-main-value)
     - [Expressions](#expressions)
-    - [Lack of Lambda & Case](#lack-of-lambda-and-case)
+    - [Lack of Lambda and Case](#lack-of-lambda-and-case)
 - [Runtime](#runtime)
-    - [Components of the machine](#components-of-machine)
+    - [Components of the machine](#components-of-the-machine)
     - [Evaluation](#evaluation)
     - [Instantiation](#instantiation)
     - [Primitives](#primitives)
-    - [How does evaluation provide laziness?](#how-does-eval-provide-laziness)
+    - [How does evaluation provide laziness?](#how-does-evaluation-provide-laziness-?)
     - [The Dump](#the-dump)
 - [Roadmap](#roadmap)
 - [Design Decisions](#design-decisions)
@@ -51,7 +51,7 @@ to download and build from source.
 
 #### Using the interpreter
 
-##### Expressions
+##### Evaluating Expressions
 Type out expressions to evaluate. For example:
 ```haskell
 > 1 + 1
@@ -59,7 +59,7 @@ Type out expressions to evaluate. For example:
 will cause `1 + 1` to be evaluated
 
 
-##### Definitions
+##### Creating Definitions
 Use `define <name> [<param>]* = <expr>` to create new supercombinators.
 ```haskell
 > define plus x y = x + y
@@ -70,7 +70,7 @@ this function, call
 > plus 1 1
 ```
 
-## Interpreter Options & Usage
+## Interpreter Options and Usage
 
 
 #### `>:step`
@@ -202,8 +202,15 @@ machine. More is talked about this in the section [Lack of Lambda and Case](#lac
     # keep in mind that K x y = x
     > let x = K 10 y; y = K x x in x
     ```
+    Even though `x` and `y` are defined in terms of each other,
+    they do not refer to each other _directly_. Rather, they refer to
+    each other as components of some larger function. This is allowed, since
+    it is possible to "resolve" `x` and `y`.
 
-    ##### Example: strict binding of `let`
+    Hence, this example will evaluate to `10`.
+
+
+    ##### Example: code disallowed because of strict `let` binding
     **NOTE:** Let binds *strictly*, not lazily, so this code _will not work_
     ```haskell
     > let y = x; x = y in 10
@@ -338,7 +345,8 @@ machine. More is talked about this in the section [Lack of Lambda and Case](#lac
     end of the line. There are no multiline comments.
     
 
-#### Lack of Lambda & Case
+#### Lack of Lambda and Case
+
 ##### Case
 `Case` requires us to have some notion of
 pattern matching / destructuring which is not present in this machine.
@@ -364,9 +372,9 @@ The runtime has 4 components:
 
 Everything the machine uses during runtime must be allocated on the heap
 before the machine starts executing. So, we need a way to convert a `CoreExpr`
-into a `Heap`.
+into a `Heap`. This conversion process is called as _instantiation_.
 
-##### Example: Sample program `1 + 1`
+##### Example of instantiation: Sample program `1 + 1`
 Consider the program `1 + 1`. The initial state of the machine is
 ```haskell
 >1 + 1
@@ -387,12 +395,18 @@ Globals - 30 items
  +  ->  0xE
 ```
 
-Every single part of the expression `1 + 1` is on the heap, and the
+Notice that every single part of the expression `1 + 1` is on the heap, and the
 symbol `+` is mapped to its address `0xE` in the `Globals` section. The
 whole expression sits on top of the stack, waiting to be evaluated.
 
+#### Evaluation
 
-##### Example: `(((S K) K) 3)`
+We will explain how code evaluates by considering an explanation of how
+`1+1` is evaluated
+
+
+
+##### Example of evaluation: `(((S K) K) 3)`
 
 Consider the definitions:
 

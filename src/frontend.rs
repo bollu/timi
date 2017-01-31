@@ -718,7 +718,6 @@ fn parse_let(mut c: &mut ParserCursor) -> Result<CoreLet, ParseError> {
 
     //<bindings>
     loop {
-        println!("trying to parse defn...");
         let defn = try!(parse_defn(&mut c));
         bindings.push(defn);
 
