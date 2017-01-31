@@ -11,11 +11,11 @@ mod test {
     pub fn run_machine(program:  &str) -> Machine {
 
         let main = match string_to_program(&program.to_string()) {
-            Result::Ok(main) => main,
-            Result::Err(e) => panic!("parse error:\n{}",  e.pretty_print(program))
+            Ok(main) => main,
+            Err(e) => panic!("parse error:\n{}",  e.pretty_print(program))
         };
-        let mut m = Machine::new_with_main(main).unwrap();
-        while !m.is_final_state() {
+        let mut m = Machine::new_from_program(main).unwrap();
+        while !m.is_final_state().unwrap() {
             let _ = m.step().unwrap();
         }
         return m

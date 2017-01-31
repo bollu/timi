@@ -2,13 +2,17 @@
 //!
 //! a Core program ([`CoreProgram`](type.CoreProgram.html)) is a collection
 //! of supercombinator(top-level) definitions
- //! top-level consists of `SupercombDefn`
+//! top-level consists of `SupercombDefn`.
+//!
+#[warn(missing_docs)]
 extern crate ansi_term;
 
 use std::fmt;
 
 /// A Heap address.
 pub type Addr = i32;
+
+/// A variable name.
 pub type Name = String;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -23,6 +27,7 @@ pub struct CoreLet {
 }
 
 #[derive(Clone, PartialEq, Eq)]
+/// A Core language expression
 pub enum CoreExpr {
     //change this?
     Variable(Name),
@@ -33,7 +38,6 @@ pub enum CoreExpr {
 }
 
 impl fmt::Debug for CoreExpr {
-
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
             &CoreExpr::Variable(ref name) => write!(fmt, "v_{}", name),
@@ -59,9 +63,14 @@ impl fmt::Debug for CoreExpr {
 
 
 #[derive(Clone, PartialEq, Eq)]
+/// A supercombinator definition, consisting of the name, arguments,
+/// and body.
 pub struct SupercombDefn {
+    /// name of the supercombinator
     pub name: String,
+    /// name of the arguments (formal parameters)
     pub args: Vec<String>,
+    /// body of the supercombinator
     pub body: CoreExpr
 }
 
@@ -74,27 +83,23 @@ impl fmt::Debug for SupercombDefn {
         }
 
         try!(write!(fmt, "= {{ {:#?} }}", self.body));
-        Result::Ok(())
+        Ok(())
 
     }
 
 }
-//a core program is a list of supercombinator
-//definitions
+
+/// A core program is a list of top-level supercombinator
+/// definitions
 pub type CoreProgram = Vec<SupercombDefn>;
 
 
 
 use self::ansi_term::Colour::{Green};
 
+/// Format an address to be of the form `0xaddress_in_hex`. Used for
+/// pretty printing addresses
 pub fn format_addr_string(addr: &Addr)  -> String {
     format!("{}{}", Green.paint("0x"), Green.underline().paint(format!("{:X}", addr)))
 }
-
-/*
-pub fn format_name_string(name: &str) -> String {
-    format!("{}", Cyan.paint(name))
-}
-*/
-
 

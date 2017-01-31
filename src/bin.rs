@@ -41,10 +41,10 @@ fn run_step_interaction<C>(rl: &mut Editor<C>,
        }
         else if input == ":nostep" {
             *pause_per_step = false;
-            return Result::Ok(());
+            return Ok(());
         }
         else if input == "n" {
-            return Result::Ok(());
+            return Ok(());
         }
         else {
             println!("unrecognized: |{}|, type :help for help.", input)
@@ -53,19 +53,13 @@ fn run_step_interaction<C>(rl: &mut Editor<C>,
     }
 }
 
-fn run_machine_step(m: &mut Machine, iteration: usize) -> Result<(), MachineError> {
+/// Runs one step of the machine, and returns if machine has reached
+/// the final state or not.
+fn run_machine_step(m: &mut Machine, iteration: usize) -> Result<bool, MachineError> {
     println!("*** ITERATION: {}", iteration);
-
-    if let Result::Err(e) = m.step() {
-        return Result::Err(e)
-    }
-
+    try!(m.step());
     print_machine(&m);
-    if m.is_final_state() {
-        println!("=== FINAL: {} ===", machine_get_final_val_string(&m));
-    };
-
-    Result::Ok(())
+    m.is_final_state()
 }
 
 fn run_machine<C>(rl: &mut Editor<C>, m: &mut Machine, pause_per_step: &mut bool) ->
@@ -74,9 +68,12 @@ where C: Completer {
 
     let mut iteration = 1;
     loop {
-
         match run_machine_step(m, iteration) {
-            Ok(()) => {},
+            Ok(true) => {
+                println!("\n=== Final Value: {} ===\n", machine_get_final_val_string(&m).unwrap());
+                break;
+            },
+            Ok(false) => {}
             Err(e) => { println!("step error: {}", e); break; }
         }
 
@@ -84,14 +81,10 @@ where C: Completer {
             try!(run_step_interaction(rl, iteration, pause_per_step));
         }
 
-        if m.is_final_state() {
-            break;
-        }
-
         iteration += 1;
     }
 
-    Result::Ok(())
+    Ok(())
 }
 
 fn interpreter() {
@@ -106,6 +99,7 @@ fn interpreter() {
         let input = match rl.readline(">") {
             Ok(line) => {
                 rl.add_history_entry(&line);
+                rl.save_history("history.txt").unwrap();
                 line
             }
             Err(ReadlineError::Interrupted) |
@@ -147,8 +141,8 @@ fn interpreter() {
         if input.starts_with("define ") {
             let sc_defn_str = input.trim_left_matches("define ").to_string();
             let sc_defn = match string_to_sc_defn(&sc_defn_str) {
-                Result::Ok(defn) => defn,
-                Result::Err(e) => {
+                Ok(defn) => defn,
+                Err(e) => {
                     println!("Parse Error:\n{}", e.pretty_print(&sc_defn_str));
                     continue;
                 }
@@ -158,16 +152,24 @@ fn interpreter() {
         }
         else {
             let expr = match string_to_expr(&input) {
-                Result::Ok(expr) => expr,
-                Result::Err(e) => {
+                Ok(expr) => expr,
+                Err(e) => {
                     println!("PARSE ERROR:\n{}", e.pretty_print(&input));
                     continue;
                 }
             };
-            m.run_expr_as_main(&expr);
+
+            let main = ir::SupercombDefn {
+                name: "main".to_string(),
+                args: Vec::new(),
+                body: expr
+            };
+
+            m.add_supercombinator(main);
+            m.setup_supercombinator_execution("main").unwrap();
             
             match run_machine(&mut rl, &mut m, &mut pause_per_step) {
-                Result::Ok(()) => {},
+                Ok(()) => {},
                 Err(ReadlineError::Interrupted) |
                 Err(ReadlineError::Eof) => {
                     break
@@ -177,7 +179,6 @@ fn interpreter() {
                 } 
             }
         }
-        rl.save_history("history.txt").unwrap();
     }
 
 
@@ -213,7 +214,7 @@ fn create_machine_from_file_path(path: &str) -> Machine {
                     "parse error:\n{}", e.pretty_print(&program_string)))
     };
 
-    match Machine::new_with_main(program) {
+    match Machine::new_from_program(program) {
         Ok(m) => return m,
         Err(e) => panic!("unable to create machine:\n{}", e)
     };
@@ -243,15 +244,10 @@ fn main() {
 
     let mut m = create_machine_from_file_path(&arg);
     
-    let mut iteration = 1;
-    while !m.is_final_state() {
-        match run_machine_step(&mut m, iteration) {
-            Ok(()) => {}
-            Err(e) => {
-                println!("step error: {}", e);
-                break;
-            }
-        }
-        iteration += 1;
-    }
+    //FIXME: right now this is a hack to share run_machine code.
+    // refactor this
+    let mut rl = Editor::<()>::new();
+    let _ =  rl.load_history("history.txt");
+    let mut pause_per_step = false;
+    run_machine(&mut rl, &mut m, &mut pause_per_step).unwrap();
 }

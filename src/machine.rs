@@ -1,4 +1,3 @@
-//!  
 //! The machine state is formed out of 4 components: `(Stack, Heap, Dump, Globals)`
 extern crate ansi_term;
 
@@ -100,14 +99,16 @@ pub enum DataTag {
     TagListCons = 4,
 }
 
+/// convert an integer data tag that is obtained from a [`CoreExpr::Pack.tag`](../ir/enum.CoreExpr.html)
+/// into a [`DataTag`](enum.DataTag.html)
 fn raw_tag_to_data_tag (raw_tag: u32) -> Result<DataTag, MachineError> {
     match raw_tag {
-        0 => Result::Ok(DataTag::TagFalse),
-        1 => Result::Ok(DataTag::TagTrue),
-        2 => Result::Ok(DataTag::TagPair),
-        3 => Result::Ok(DataTag::TagListNil),
-        4 => Result::Ok(DataTag::TagListCons),
-        other @ _ => Result::Err(format!(
+        0 => Ok(DataTag::TagFalse),
+        1 => Ok(DataTag::TagTrue),
+        2 => Ok(DataTag::TagPair),
+        3 => Ok(DataTag::TagListNil),
+        4 => Ok(DataTag::TagListCons),
+        other @ _ => Err(format!(
                 "expected False(0), \
                  True(1), or Pair(2). \
                  found: {}",
@@ -190,7 +191,7 @@ impl fmt::Debug for HeapNode {
                     }
                     try!(write!(fmt, ")"));
                 }
-                Result::Ok(())
+                Ok(())
 
             }
         }
@@ -378,8 +379,8 @@ Result<(Addr, Addr), MachineError> {
 
     match node {
         HeapNode::Application{fn_addr, arg_addr} => 
-            Result::Ok((fn_addr, arg_addr)),
-            other @ _ => Result::Err(format!(
+            Ok((fn_addr, arg_addr)),
+            other @ _ => Err(format!(
                     "expected application node, \
                                          found: {:#?}", other))
     }
@@ -465,7 +466,7 @@ impl fmt::Debug for Heap {
             try!(write!(fmt, "\t{} => {:#?}\n", format_addr_string(key), val));
         }
 
-        return Result::Ok(())
+        return Ok(())
 
     }
 }
@@ -584,8 +585,8 @@ fn get_prelude() -> CoreProgram {
                         fac n = (Y facrec) n\n\
                         ";
     match frontend::string_to_program(program_str) {
-        Result::Ok(program) => program,
-        Result::Err(e) => panic!("prelude compilation failed:\n{}", e.pretty_print(program_str))
+        Ok(program) => program,
+        Err(e) => panic!("prelude compilation failed:\n{}", e.pretty_print(program_str))
     }
 }
 
@@ -643,7 +644,8 @@ fn build_heap_and_env_for_program(sc_defs: CoreProgram,
     }
 
 impl Machine {
-    /// Create a minimal machine that has the prelude and primitives instantiated.
+    /// Create a minimal machine that has the prelude and primitives instantiated,
+    /// but with an empty stack.
     pub fn new_minimal() -> Machine {
         let (initial_heap, globals) = build_heap_and_env_for_program(get_prelude(),
         get_primitives());
@@ -660,27 +662,22 @@ impl Machine {
 
     }
 
-    /// Create a machine with the given program, which is assured to have `main` as a
-    /// supercombinator.
-    /// This creates the prelude, primitives, as well as all the supercombinators in `program`.
-    /// It sets up the stack to have `main` on the top of the stack.
+    /// Create a machine from `program`. Expects a `main` to be present
+    /// in the given program.
     ///
-    /// ### Errors
-    /// If `program` does not have `main`, a `MachineError` is returned.
-    pub fn new_with_main(program: CoreProgram) -> Result<Machine, MachineError> {
+    /// ###Errors
+    /// returns an error if `main` was not found
+    pub fn new_from_program(program: CoreProgram) -> Result<Machine, MachineError> {
         let mut m = Machine::new_minimal();
+
         for sc in program.into_iter() {
             m.add_supercombinator(sc);
         }
 
-        //get main out of the heap
-        let main_addr : Addr = match m.globals.get("main") {
-            Some(main) => main,
-            None => return Result::Err("no main found in given program".to_string())
-        }.clone();
+        try!(m.setup_supercombinator_execution("main"));
 
-        m.stack.push(main_addr);
         Result::Ok(m)
+
     }
 
     /// Add the supercombinator to the machine. 
@@ -689,7 +686,7 @@ impl Machine {
     /// in the environment to the name of the supercombinator.
     /// 
     /// Returns the address of allocation of the supercombinator
-    pub fn add_supercombinator(&mut self, sc_defn: SupercombDefn) -> Addr{
+    pub fn add_supercombinator(&mut self, sc_defn: SupercombDefn) -> Addr {
         let name = sc_defn.name.clone();
         let node = HeapNode::Supercombinator(sc_defn);
         let addr = self.heap.alloc(node);
@@ -700,33 +697,35 @@ impl Machine {
         addr
     }
 
-    /// Creates a supercombinator, names it `main` and sets its body to the
-    /// given expression. Then starts execution of the given expression by
-    /// putting main on top of the stack.
-    pub fn run_expr_as_main(&mut self, expr: &CoreExpr) {
-        let main_defn = SupercombDefn {
-            name: "main".to_string(),
-            body: expr.clone(),
-            args: Vec::new()
-        };
+    /// setup the execution of a registered supercombinator with name sc_name.
+    pub fn setup_supercombinator_execution(&mut self,
+                                           sc_name: &str) -> Result<(), MachineError> {
 
-        let main_addr = self.add_supercombinator(main_defn);
-        self.stack = Stack { stack: vec![main_addr] };
+        let main_addr = try!(self.globals
+                            .get(sc_name)
+                            .ok_or(format!("supercombinator with name: {} not found", sc_name)));
+        self.stack = Stack::new();
+        self.stack.push(*main_addr);
+
+        Ok(())
     }
 
     /// returns whether the machine is in final state or not.
-    /// ### Panics
     ///
-    /// This panics if the stack is empty.
-    pub fn is_final_state(&self) -> bool {
-        assert!(self.stack.len() > 0, "expect stack to have at least 1 node");
+    /// ### Errors
+    /// Returns `MachineError` if machine is in invalid state
+    pub fn is_final_state(&self) -> Result<bool, MachineError> {
+        if self.stack.len() == 0 {
+            return Err("expect stack to have at least 1 node".to_string())
+        }
 
         if self.stack.len() > 1 {
-            false
+            Ok(false)
         } else {
             let dump_empty = self.dump.len() == 0;
-            self.heap.get(&self.stack.peek().unwrap()).is_data_node() &&
-                dump_empty
+            //unwrap() is safe since we known that stack.len > 0
+            Ok(self.heap.get(&self.stack.peek().unwrap()).is_data_node() &&
+                dump_empty)
         }
     }
 
@@ -750,7 +749,7 @@ impl Machine {
             self.stack = self.dump
                 .pop()
                 .expect("dump should have at least 1 element");
-            Result::Ok(())
+            Ok(())
         } else {
             self.heap_node_step(&heap_val)
         }
@@ -761,11 +760,11 @@ impl Machine {
     fn heap_node_step(&mut self, tos_node: &HeapNode) -> Result<(), MachineError> {
         match tos_node {
             &HeapNode::Num(n) => {
-                return Result::Err(format!("number applied as a function: {}", n));
+                return Err(format!("number applied as a function: {}", n));
             }
 
             data @ &HeapNode::Data{..} => {
-                return Result::Err(format!(
+                return Err(format!(
                         "data node applied as function: {:#?}", data));
             }
             &HeapNode::Application{fn_addr, ..} => {
@@ -842,10 +841,10 @@ impl Machine {
                 try!(run_primitive_case_list(self));
             }
             &HeapNode::Primitive(MachinePrimOp::Undef) => {
-                return Result::Err("hit undefined operation".to_string())
+                return Err("hit undefined operation".to_string())
             }
         };
-        Result::Ok(())
+        Ok(())
     }
 
 
@@ -858,12 +857,12 @@ impl Machine {
                 let let_env = try!(instantiate_let_bindings(self, env, bindings));
                 self.instantiate(*let_rhs, &let_env)
             }
-            CoreExpr::Num(x) => Result::Ok(self.heap.alloc(HeapNode::Num(x))),
+            CoreExpr::Num(x) => Ok(self.heap.alloc(HeapNode::Num(x))),
             CoreExpr::Application(fn_expr, arg_expr) => {
                 let fn_addr = try!(self.instantiate(*fn_expr, env));
                 let arg_addr = try!(self.instantiate(*arg_expr, env));
 
-                Result::Ok(self.heap.alloc(HeapNode::Application {
+                Ok(self.heap.alloc(HeapNode::Application {
                     fn_addr: fn_addr,
                     arg_addr: arg_addr
                 }))
@@ -871,8 +870,8 @@ impl Machine {
             }
             CoreExpr::Variable(vname) => {
                 match env.get(&vname) {
-                    Some(addr) => Result::Ok(*addr),
-                    None => Result::Err(format!("unable to find variable in heap: |{}|", vname))
+                    Some(addr) => Ok(*addr),
+                    None => Err(format!("unable to find variable in heap: |{}|", vname))
                 }
 
             }
@@ -883,7 +882,7 @@ impl Machine {
                         arity: arity
                     });
 
-                Result::Ok(self.heap.alloc(prim_for_pack))
+                Ok(self.heap.alloc(prim_for_pack))
 
             } 
         }
@@ -1007,7 +1006,7 @@ fn instantiate_let_bindings(m: &mut Machine,
 
         }
 
-        Result::Ok(env)
+        Ok(env)
 
     }
 
@@ -1139,11 +1138,11 @@ fn run_primitive_negate(m: &mut Machine) -> Result<(), MachineError> {
                                           neg_ap_addr,
                                           heap_try_num_access)) {
             HeapAccessValue::Found(val) => val,
-            HeapAccessValue::SetupExecution => return Result::Ok(())
+            HeapAccessValue::SetupExecution => return Ok(())
         };
 
     m.heap.rewrite(&neg_ap_addr, HeapNode::Num(-to_negate_val));
-    Result::Ok(())
+    Ok(())
 }
 
     //0: if 
@@ -1178,7 +1177,7 @@ fn run_primitive_negate(m: &mut Machine) -> Result<(), MachineError> {
                                               heap_try_bool_access)) {
                 HeapAccessValue::Found(b) => b,
                 HeapAccessValue::SetupExecution => {
-                    return Result::Ok(())
+                    return Ok(())
                 }
             }
         };
@@ -1198,7 +1197,7 @@ fn run_primitive_negate(m: &mut Machine) -> Result<(), MachineError> {
             let else_node = m.heap.get(&else_addr);
             m.heap.rewrite(&else_ap_addr, else_node);
         }
-        Result::Ok(())
+        Ok(())
     }
 
     //0: casePair
@@ -1232,7 +1231,7 @@ fn run_primitive_negate(m: &mut Machine) -> Result<(), MachineError> {
                     pair
                 },
                 HeapAccessValue::SetupExecution => {
-                    return Result::Ok(())
+                    return Ok(())
                 }
             };
 
@@ -1257,7 +1256,7 @@ fn run_primitive_negate(m: &mut Machine) -> Result<(), MachineError> {
 
         //rewrite 2: with value
         m.heap.rewrite(&case_handler_ap_addr, ap_outer);
-        Result::Ok(())
+        Ok(())
     }
 
     //Calling Convention
@@ -1312,7 +1311,7 @@ fn run_primitive_negate(m: &mut Machine) -> Result<(), MachineError> {
                                               param_ap_addr,
                                               heap_try_list_access)) {
                 HeapAccessValue::Found(list_data) => list_data, 
-                HeapAccessValue::SetupExecution => return Result::Ok(())
+                HeapAccessValue::SetupExecution => return Ok(())
 
             };
 
@@ -1342,7 +1341,7 @@ fn run_primitive_negate(m: &mut Machine) -> Result<(), MachineError> {
             }
         };
 
-        Result::Ok(())
+        Ok(())
     }
 
 
@@ -1369,7 +1368,7 @@ where F: Fn(i32, i32) -> HeapNode {
                                           left_ap_addr,
                                           heap_try_num_access)) {
             HeapAccessValue::Found(val) => val,
-            HeapAccessValue::SetupExecution => return Result::Ok(())
+            HeapAccessValue::SetupExecution => return Ok(())
         }
     };
 
@@ -1385,15 +1384,16 @@ where F: Fn(i32, i32) -> HeapNode {
                                           binop_ap_addr,
                                           heap_try_num_access)) {
             HeapAccessValue::Found(val) => val,
-            HeapAccessValue::SetupExecution => return Result::Ok(())
+            HeapAccessValue::SetupExecution => return Ok(())
         };
 
     m.heap.rewrite(&binop_ap_addr, handler(left_value,
                                            right_value));
 
-    Result::Ok(())
+    Ok(())
 }
 
+/// Runs the constructor corresponding to `tag` and `arity`.
 //NOTE: rewrite_addr will point to the address of the full constructor call.
 //That way, when we dump the stack and use it to run something more complex,
 //it will point to the correct location
@@ -1425,7 +1425,7 @@ fn run_constructor(m: &mut Machine,
     let mut rewrite_addr = try!(m.stack.pop());
 
     if m.stack.len() < arity as usize {
-        return Result::Err(format!("expected to have \
+        return Err(format!("expected to have \
                                        {} arguments to {:#?} \
                                        constructor, found {}",
                                        arity, 
@@ -1459,7 +1459,7 @@ fn run_constructor(m: &mut Machine,
                    });
 
     m.stack.push(rewrite_addr);
-    Result::Ok(())
+    Ok(())
 }
 
 /// Runs the given supercombinator by instantiating it on top of the stack.
@@ -1510,7 +1510,7 @@ fn run_supercombinator(m: &mut Machine, sc_defn: &SupercombDefn) -> Result<(), M
         m.heap.rewrite(&full_call_addr, HeapNode::Indirection(new_alloc_addr));
     }
 
-    Result::Ok(())
+    Ok(())
 }
 
 
@@ -1544,26 +1544,32 @@ fn make_supercombinator_env(sc_defn: &SupercombDefn,
             env.insert(arg_name.clone(), param_addr);
 
         }
-    Result::Ok(env)
+    Ok(env)
 }
 
 
 
-/// represents what happens when you try to access a heap node for a 
-/// primitive run. Either you found the required heap node,
-/// or you ask to setup execution since there is a frozen supercombinator
-/// node or something else that needs to be evaluated
+/// Represents a successful heap node access from [`setup_heap_node_access`](fn.setup_heap_node_access.html).
+///
+/// Either the heap node was found, in which case `Found<T>` is returned.
+/// Otherwise, a complex heap node (function application) was found, whose
+/// simplification was setup. 
 enum HeapAccessValue<T> {
     Found(T),
     SetupExecution
 }
 
+/// Represents the result of trying to access the heap using [`setup_heap_node_access`](fn.setup_heap_node_access.html).
+///
+/// Returns [`HeapAccessValue`](enum.HeapAccessValue.html) if the access succeeded.
 type HeapAccessResult<T> = Result<HeapAccessValue<T>, MachineError>;
 
-/// get a heap node of the kind that handler wants to get,
+/// Get a heap node of the kind that handler wants to get,
 /// otherwise setup the heap so that unevaluated code
-/// is evaluated to get something of this type
-/// TODO: check if we can change semantics so it does not need to take the
+/// is evaluated to get something of this type.
+///
+/// ###TODO
+/// Check if we can change semantics so it does not need to take the
 /// application node as the parameter that's a little awkward
 fn setup_heap_node_access<F, T>(m: &mut Machine,
                                 stack_to_dump: Stack,
@@ -1583,7 +1589,7 @@ where F: Fn(HeapNode) -> Result<T, MachineError> {
                            fn_addr: fn_addr,
                            arg_addr: ind_addr
                        });
-        return Result::Ok(HeapAccessValue::SetupExecution)
+        return Ok(HeapAccessValue::SetupExecution)
     };
 
 
@@ -1591,13 +1597,13 @@ where F: Fn(HeapNode) -> Result<T, MachineError> {
     if !arg.is_data_node() {
         m.dump_stack(stack_to_dump);
         m.stack.push(arg_addr);
-        return Result::Ok(HeapAccessValue::SetupExecution)
+        return Ok(HeapAccessValue::SetupExecution)
     }
 
     //give the node the access handler. it will either return the value
     //or fail to do so
     let access_result = try!(access_handler(arg));
-    Result::Ok(HeapAccessValue::Found(access_result))
+    Ok(HeapAccessValue::Found(access_result))
 }
 
 
@@ -1606,8 +1612,8 @@ where F: Fn(HeapNode) -> Result<T, MachineError> {
 /// returns an error if the heap node is not a `Num` node
 fn heap_try_num_access(h: HeapNode) -> Result<i32, MachineError> {
     match h {
-        HeapNode::Num(i) => Result::Ok(i),
-        other @ _ => Result::Err(format!(
+        HeapNode::Num(i) => Ok(i),
+        other @ _ => Err(format!(
                 "expected number, found: {:#?}", other))
     }
 }
@@ -1618,9 +1624,9 @@ fn heap_try_num_access(h: HeapNode) -> Result<i32, MachineError> {
 /// returns an error if the heap node is not data with `TagTrue` or `TagFalse`.
 fn heap_try_bool_access(h: HeapNode) -> Result<bool, MachineError> {
     match h {
-        HeapNode::Data{tag: DataTag::TagFalse, ..} => Result::Ok(false),
-        HeapNode::Data{tag: DataTag::TagTrue, ..} => Result::Ok(true),
-        other @ _ => Result::Err(format!(
+        HeapNode::Data{tag: DataTag::TagFalse, ..} => Ok(false),
+        HeapNode::Data{tag: DataTag::TagTrue, ..} => Ok(true),
+        other @ _ => Err(format!(
                 "expected true / false, found: {:#?}", other))
     }
 }
@@ -1634,10 +1640,10 @@ fn heap_try_pair_access(h: HeapNode) -> Result<(Addr, Addr), MachineError> {
             let right = try!(component_addrs.get(1).ok_or(format!(
                         "expected right component, of pair {:#?}, was not found", h)));
 
-            Result::Ok((*left, *right))
+            Ok((*left, *right))
         }
         other @ _ => 
-            Result::Err(format!(
+            Err(format!(
                     "expected Pair tag, found: {:#?}", other))
     }
 }
@@ -1650,7 +1656,7 @@ enum ListAccess { Nil, Cons (Addr, Addr) }
 fn heap_try_list_access(h: HeapNode) -> Result<ListAccess, MachineError> {
     match h {
         HeapNode::Data{tag: DataTag::TagListNil,..} => {
-            Result::Ok(ListAccess::Nil)
+            Ok(ListAccess::Nil)
         }
         HeapNode::Data{tag: DataTag::TagListCons, ref component_addrs} => {
             let x_addr = try!(component_addrs.get(0).cloned().ok_or(format!(
@@ -1658,10 +1664,10 @@ fn heap_try_list_access(h: HeapNode) -> Result<ListAccess, MachineError> {
             let xs_addr = try!(component_addrs.get(1).cloned().ok_or(format!(
                         "expected second component of list, found {:#?}", h)));
 
-            Result::Ok((ListAccess::Cons(x_addr, xs_addr)))
+            Ok((ListAccess::Cons(x_addr, xs_addr)))
         }
         other @ _ => 
-            Result::Err(format!(
+            Err(format!(
                     "expected Pair tag, found: {:#?}", other))
     }
 }
@@ -1669,11 +1675,11 @@ fn heap_try_list_access(h: HeapNode) -> Result<ListAccess, MachineError> {
 /// returns the pretty-printed version of the final heap node on top
 /// of the stack.
 ///
-/// ### Panics
-/// this function panics if the machine is not in the final state
-pub fn machine_get_final_val_string(m: &Machine) -> String {
-    assert!(m.is_final_state());
-    format_heap_node(&m.heap, &m.stack.peek().unwrap())
+/// ### Errors
+/// Returns an error if the machine is not in the final state
+pub fn machine_get_final_val_string(m: &Machine) -> Result<String, MachineError> {
+    try!(m.is_final_state());
+    Result::Ok(format_heap_node(&m.heap, &m.stack.peek().unwrap()))
 }
 
 

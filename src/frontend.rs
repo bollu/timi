@@ -1,3 +1,4 @@
+#[warn(missing_docs)]
 extern crate ansi_term;
 extern crate rand;
 
@@ -40,13 +41,13 @@ impl Point {
 /// Represents a range in a file from the start point to the end point.
 /// The Range is `[start, end]`.
 ///
-///
-/// # Examples
+/// ###Use Case
 ///
 /// Used to track regions in the source code from where tokens came from. Used
 /// during error reporting to pretty-print source code blocks
 ///
-///**NOTE:** 
+/// ###Note
+///  
 /// `start = end` represents a range pointing to one character in a file.
 #[derive(Debug, Clone, Copy)]
 pub struct Range {
@@ -55,11 +56,19 @@ pub struct Range {
 }
 
 
+/// Kinds of Parse errors that occur during tokenization & Parsing.
 pub enum ParseErrorKind {
-    /// End of file with the error string inside it
+    /// End of file with custom error string. 
     EOF(String),
-    /// 
-    UnexpectedToken{ expected: Vec<CoreToken>, found: CoreToken, error: String },
+    /// Unexpected token was found. 
+    UnexpectedToken{
+        /// List of expected tokens
+        expected: Vec<CoreToken>,
+        /// Token that was actually found
+        found: CoreToken,
+        /// error message
+        error: String },
+    /// Generic error message
     Generic(String)
 }
 
@@ -81,13 +90,19 @@ impl fmt::Debug for ParseErrorKind {
 }
 
 #[derive(Debug)]
+/// Represents a parse error.
+/// Consists of a [`Range`](struct.Range.html) for location of the error
+/// and [`ParseErrorKind`](enum.ParseErrorKind.html) for error information.
 pub struct ParseError(Range, ParseErrorKind);
 
 impl ParseError {
+    /// Helper to construct a `Err` with a [`ParseErrorKind::Generic`](enum.ParseErrorKind.html)
     pub fn generic<T>(range: Range, s: String) -> Result<T, ParseError> {
         ParseError(range, ParseErrorKind::Generic(s)).into()
     }
 
+    /// Pretty print by using `program` and `Range` to show where in the source code
+    /// the error was found.
     pub fn pretty_print(&self, program: &str) -> String {
 
         let &ParseError(range, ref error_kind) = self;
@@ -111,10 +126,12 @@ impl ParseError {
         format!("{}\n{:#?}", source_lines, error_kind)
     }
 
+    /// pretty print the line number string
     fn get_line_number_pretty(line: usize) -> String {
         format!("{}| ", line + 1)
     }
 
+    /// pretty print a single source line
     fn pretty_print_single_line(line: usize, col_begin: usize, col_end: usize, line_str: &Vec<char>) -> String{
         use std::iter;
 
@@ -136,6 +153,7 @@ impl ParseError {
     }
 
 
+    /// Pretty print multiple source lines.
     fn pretty_print_multiple_lines(range: Range, lines_str: &[Vec<char>]) -> String{
         let mut out = String::new();
         for (i, line)  in lines_str.iter().enumerate() {
@@ -151,7 +169,7 @@ impl ParseError {
 
 impl<T> Into<Result<T, ParseError>> for ParseError {
     fn into(self) -> Result<T, ParseError> {
-        Result::Err(self)
+        Err(self)
     }
 
 
@@ -160,6 +178,7 @@ impl<T> Into<Result<T, ParseError>> for ParseError {
 
 
 #[derive(Clone, PartialEq, Eq, Hash)]
+/// Token for the Core language grammar
 pub enum CoreToken {
     Let,
     In,
@@ -222,6 +241,8 @@ impl fmt::Debug for CoreToken {
 
 
 #[derive(Clone)]
+/// Represents a location in the token stream.
+/// Used to maintain parsing information.
 struct ParserCursor {
     tokens: Vec<(Range, CoreToken)>,
     pos: usize,
@@ -242,6 +263,9 @@ impl ParserCursor {
         }
     }
 
+    /// Peek at the current token.
+    /// If a token exists, then return the token & its range.
+    /// If a token does not exist, return the range of the last seen token and `None`.
     fn peek(&self) -> (Range, Option<CoreToken>) {
         match self.tokens.get(self.pos) {
             Some(&(r, ref t)) => (r, Some(t.clone())),
@@ -250,18 +274,24 @@ impl ParserCursor {
 
     }
 
+    /// Consume a token, moving the cursor one token forward in the input stream.
+    /// 
+    /// Returns the consumed token and its range if `consume()` succeeded.
+    /// Returns `ParseError::EOF` with `error` if no more tokens were found.
     fn consume(&mut self, error: &str) -> Result<(Range, CoreToken), ParseError> {
         match self.peek() {
             (range, None) => ParseError(range, ParseErrorKind::EOF(error.to_string())).into(),
             (range, Some(token)) => {
                 self.cur_range = range;
                 self.pos += 1;
-                Result::Ok((range, token))
+                Ok((range, token))
             }
         }
 
     }
 
+    /// Expect the given token, returning a `ParseError` if the given token
+    /// was not found.
     fn expect(&mut self, t: CoreToken, error: &str) -> Result<(), ParseError> {
         match self.peek() {
             (range, None) => return ParseError(range, ParseErrorKind::EOF(format!(
@@ -270,7 +300,7 @@ impl ParserCursor {
                 if tok == t {
                     self.cur_range = range;
                     self.pos += 1; 
-                    Result::Ok(())
+                    Ok(())
                 }
                 else {
                     return ParseError(range, ParseErrorKind::UnexpectedToken{
@@ -286,6 +316,10 @@ impl ParserCursor {
 
 
 
+/// Represents an input stream with location information
+///
+/// This also maintains the current line number, column number, etc.
+/// to be able to create [`Range`](struct.Range.html) for tokens.
 struct TokenizerCursor {
     program: Vec<char>,
     line: usize,
@@ -303,12 +337,14 @@ impl TokenizerCursor {
         }
     }
 
+    /// Peek the input stream. If the stream is empty, return `None`.
+    /// Otherwise return a `Range` of the current character and the character.
     fn peek(&self) -> Option<(Range, &char)> {
         self.program.get(self.i).map(|c| (self.point().as_range(), c))
     }
 
 
-    /// returns the Point corresponding to the current cursor location
+    /// Return the Point corresponding to the current cursor location.
     fn point(&self) -> Point {
         Point {
             index: self.i,
@@ -318,6 +354,8 @@ impl TokenizerCursor {
     }
 
 
+    /// Return a [`Range`](struct.Range.html) starting from `start_point`
+    /// till the current cursor location.
     fn range_till_cur(&self, start_point: Point) -> Range {
         Range {
             start: start_point,
@@ -326,6 +364,8 @@ impl TokenizerCursor {
 
     }
 
+    /// Consumes the longest match from the input stream from `matches`
+    /// if no match is found, returns a [`ParseError`](enum.ParseError.html)
     fn consume_longest_match(&mut self, matches: Vec<&str>) -> Result<(Range, String), ParseError> {
         let start = self.point();
 
@@ -355,7 +395,7 @@ impl TokenizerCursor {
         }
         //longest operator is tokenized
         match longest_match {
-            Some(m) => Result::Ok((self.range_till_cur(start), m)),
+            Some(m) => Ok((self.range_till_cur(start), m)),
             None => {
                 ParseError::generic(self.range_till_cur(start),
                                     format!("expected one of {:#?}, found none to match", matches))
@@ -369,7 +409,10 @@ impl TokenizerCursor {
     /// `pred` is given the string consumed so far and the current character. It
     /// is expected to return whether the current character should be consumed
     /// or not. 
-    /// NOTE: on finding `EOF`, this returns whatever has been consumed so far
+    ///
+    /// ### Note
+    ///
+    ///on finding `EOF`, this returns whatever has been consumed so far
     fn consume_while<F>(&mut self, pred: F, error: &str) -> (Range, String)
     where F: Fn(&String, &char) -> bool {
         let start = self.point();
@@ -393,9 +436,13 @@ impl TokenizerCursor {
     }
 
 
-    fn consume(&mut self, error: &str) -> Result<(), ParseError> {
-        let c = match self.peek() {
-            Some((_, c)) => c.clone(),
+    /// Consumes the current character, moving one character forward in the stream.
+    ///
+    /// Returns a `ParseError` if the stream is empty, with `error` as the error
+    /// string.
+    fn consume(&mut self, error: &str) -> Result<(Range, char), ParseError> {
+        let (range, c) = match self.peek() {
+            Some((range, c)) => (range, c.clone()),
             None => return ParseError::generic(self.point().as_range(), error.to_string())
         };
 
@@ -407,12 +454,18 @@ impl TokenizerCursor {
             self.line += 1;
         };
 
-        Result::Ok(())
+        Ok((range, c))
     }
 
 
 }
 
+/// Convert a raw identifier string to the correct token
+/// 
+/// ### Use Case
+/// identifiers can also be tokens such as `let`, `pack`, `in`, etc.
+/// we use this to disambiguate between general identifiers and keywords
+/// in the language
 fn identifier_str_to_token(token_str: &str) -> CoreToken {
     match token_str {
         "let" => CoreToken::Let,
@@ -423,11 +476,17 @@ fn identifier_str_to_token(token_str: &str) -> CoreToken {
 }
 
 
+/// Returns whether the given character is a space
+///
+/// ### Use Case
+/// The parser eats white space between tokens.
+/// This is used to detect white space
 fn is_char_space(c: &char) -> bool {
     *c == ' ' || *c == '\n' || *c == '\t'
 }
 
 
+/// Tokenize a symbol from the input stream
 fn tokenize_symbol(cursor: &mut TokenizerCursor) -> Result<(Range, CoreToken), ParseError> {
 
 
@@ -468,20 +527,22 @@ fn tokenize_symbol(cursor: &mut TokenizerCursor) -> Result<(Range, CoreToken), P
     let tok = symbol_token_map
                     .get(&op_str.as_str())
                     .expect(&format!("expected symbol for string: {}", op_str));
-    Result::Ok((range, tok.clone()))
+    Ok((range, tok.clone()))
 }
 
+/// Eat whitespace from the input stream
 fn eat_whitespace(cursor: &mut TokenizerCursor) {
     cursor.consume_while(|_, c| is_char_space(c), "eating whitespace");
 }
 
 
-fn is_ident_char(c: &char) -> bool {
+/// Return whether the character can be part of an identifier.
+fn can_char_belong_identifier(c: &char) -> bool {
     c.is_alphanumeric() || *c == '?' || *c == '-' || *c == '_'
 }
  
 
-/// eats comments till the end of the line
+/// Eats comments till the end of the line
 /// returns whether a comment was consumed or not
 /// this is used to restart tokenization for the next line
 /// if a comment was found
@@ -496,6 +557,31 @@ fn eat_comment(cursor: &mut TokenizerCursor) -> bool {
     };
 }
 
+/// ```haskell`
+/// <ident> := [a-z, A-Z]([a-Z, A-Z, 0-9, ?, -, _]*)
+/// ```
+///
+/// An identifier must start with a character, and can then contain
+/// any number of characters, numbers, `_`, `-` and `?`
+fn parse_identifier(mut cursor: &mut TokenizerCursor) -> Result<(Range, CoreToken), ParseError> {
+    let mut id_string = String::new();
+    let start = cursor.point();
+
+    let (_, c) = try!(cursor.consume("consuming alphabet token"));
+
+    id_string.push(c);
+    let &(mut range, ref consumed_str) = &cursor.consume_while(|_, c| can_char_belong_identifier(c), "consuming identifier string");
+    range.start = start;
+
+    id_string += &consumed_str;
+    Ok((range, identifier_str_to_token(&id_string)))
+
+}
+
+/// Tokenize the given program string.
+/// Returns a vector of `(Range, CoreToken)` where `Range` represents the
+/// source code range of the token, and `CoreToken` is the token.
+/// Returns `ParseError` on failure.
 fn tokenize(program: &str) -> Result<Vec<(Range, CoreToken)>, ParseError> {
 
     let mut cursor = TokenizerCursor::new(program);
@@ -517,23 +603,9 @@ fn tokenize(program: &str) -> Result<Vec<(Range, CoreToken)>, ParseError> {
             Some((_, &c)) => c
         };
 
-
         //alphabet: parse literal
         if peek.is_alphabetic() {
-
-            //get the identifier name
-            let mut id_string = String::new();
-            let start = cursor.point();
-
-            id_string.push(peek);
-
-            try!(cursor.consume("consuming alphabet token"));
-            let &(mut range, ref consumed_str) = &cursor.consume_while(|_, c| is_ident_char(c), "consuming identifier string");
-            range.start = start;
-
-            id_string += &consumed_str;
-
-            tokens.push((range, identifier_str_to_token(&id_string)));
+            tokens.push(try!(parse_identifier(&mut cursor)));
         }
         else if peek.is_numeric() {
             //parse the number
@@ -549,22 +621,35 @@ fn tokenize(program: &str) -> Result<Vec<(Range, CoreToken)>, ParseError> {
         }
     }
 
-    Result::Ok(tokens)
+    Ok(tokens)
 
 }
 
+/// Try to parse the given string as an integer.
+/// 
+/// ### Use Case
+/// Integers are stored as strings in the tokenizer to prevent loss of precision 
+/// during error reporting till the very last step.
+///
+/// ### NOTE
+/// This function can be extended to deal with hex literals `0x..`, etc. but this
+/// is not done for simplicity.
+/// TODO: provide support for `hex`, `oct` formats.
 fn parse_string_as_int(range: Range, num_str: String) -> Result<i32, ParseError> {
-    //FIXME: rewrite using map_err
     match i32::from_str_radix(&num_str, 10) {
-        Result::Ok(num) => Result::Ok(num),
-        Result::Err(_) => ParseError::generic(range,
+        Ok(num) => Ok(num),
+        Err(_) => ParseError::generic(range,
                                         format!("unable to parse {} as int", num_str))
     }
 }
 
 
-//does this token allow us to start to parse an
-//atomic expression?
+/// Returns if the given token is the start of an atomic expression.
+///
+/// ### Use Case
+/// Since our grammar is `LL(1)`, we require one lookahead to disambiguate between
+/// different parses of atomic expressions. So, we use this to tell us if
+/// we should parse an atomic expression or a function application.
 fn is_token_atomic_expr_start(t: &CoreToken) -> bool {
     match t {
         &CoreToken::Integer(_) => true,
@@ -575,22 +660,24 @@ fn is_token_atomic_expr_start(t: &CoreToken) -> bool {
 
 }
 
-//atomic := <num> | <ident> | "(" <expr> ")"
+/// ```haskell
+/// <atomic> := <num> | <ident> | "(" <expr> ")"
+/// ```
 fn parse_atomic_expr(mut c: &mut ParserCursor) ->
 Result<CoreExpr, ParseError> {
     match try!(c.consume("parsing atomic expression")) {
         (range, CoreToken::Integer(num_str)) => {
             let num = try!(parse_string_as_int(range, num_str));
-            Result::Ok(CoreExpr::Num(num))
+            Ok(CoreExpr::Num(num))
         },
         (_, CoreToken::Ident(ident)) => {
-            Result::Ok(CoreExpr::Variable(ident))
+            Ok(CoreExpr::Variable(ident))
         },
         (_, CoreToken::OpenRoundBracket) => {
             let inner_expr = try!(parse_expr(&mut c));
             //TODO: create c.match() that prints errors about matching parens
             try!(c.expect(CoreToken::CloseRoundBracket, "looking for ) for matching ("));
-            Result::Ok(inner_expr)
+            Ok(inner_expr)
         },
         (range, other) =>
             return ParseError(range, ParseErrorKind::Generic(format!(
@@ -600,7 +687,9 @@ Result<CoreExpr, ParseError> {
 
 }
 
-//defn := <ident> "=" <expr>
+/// ```haskell
+/// <defn> := <ident> "=" <expr>
+/// ```
 fn parse_defn(mut c: &mut ParserCursor) ->
 Result<(Name, Box<CoreExpr>), ParseError> {
 
@@ -608,7 +697,7 @@ Result<(Name, Box<CoreExpr>), ParseError> {
         (_, CoreToken::Ident(name)) => {
             try!(c.expect(CoreToken::Assignment, "expected = after name in let bindings"));
             let rhs : CoreExpr = try!(parse_expr(&mut c));
-            Result::Ok((name, Box::new(rhs)))
+            Ok((name, Box::new(rhs)))
         }
         (range, other) =>  {
             return  ParseError::generic(range, format!("expected LHS of let binding, found {:#?}", other))
@@ -616,8 +705,10 @@ Result<(Name, Box<CoreExpr>), ParseError> {
     }
 }
 
-//<let> := "let" <bindings> "in" <expr>
-//<bindings> := <defn> | <defn> ";" <bindings>
+/// ```haskell
+/// <let> := "let" <bindings> "in" <expr>;
+/// <bindings> := <defn> | <defn> ";" <bindings>
+/// ```
 fn parse_let(mut c: &mut ParserCursor) -> Result<CoreLet, ParseError> {
     //<let>
     try!(c.expect(CoreToken::Let, "expected let"));
@@ -646,13 +737,15 @@ fn parse_let(mut c: &mut ParserCursor) -> Result<CoreLet, ParseError> {
     //<expr>
     let rhs_expr = try!(parse_expr(c));
 
-    Result::Ok(CoreLet {
+    Ok(CoreLet {
         bindings: bindings,
         expr: Box::new(rhs_expr)
     })
 }
 
-//pack := Pack "{" tag "," arity "}"
+/// ```haskell
+/// <pack> := "Pack" "{" <tag : Int> "," <arity : Int> "}"
+/// ```
 fn parse_pack(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
     let pack_grammar = "pack := Pack \"{\" tag \",\" arity \"}\"";
 
@@ -681,13 +774,19 @@ fn parse_pack(mut c: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
 
     //TODO: create cursor.match(..)
     try!(c.expect(CoreToken::CloseCurlyBracket, "expecting closing curly bracket for Pack"));
-    Result::Ok(CoreExpr::Pack{tag: tag, arity: arity })
+    Ok(CoreExpr::Pack{tag: tag, arity: arity })
 
 
 }
 
 
-//aexpr := variable | number | Pack "{" num "," num "}" | "(" expr ")" 
+/// ```haskell
+/// <aexpr> := <atomic> | Pack "{" <num> "," <num> "}";
+/// <application> := <aexpr> | <aexpr>+
+///```
+///
+/// Note that this parses either a standalone expression <aexpr>,
+/// or a collection of <aexpr> that become function application
 fn parse_application(mut cursor: &mut ParserCursor) -> 
 Result<CoreExpr, ParseError> {
 
@@ -721,7 +820,7 @@ Result<CoreExpr, ParseError> {
     }
     else if application_vec.len() == 1 {
         //just an atomic expr
-        return Result::Ok(application_vec.remove(0))
+        return Ok(application_vec.remove(0))
     }
     else {
 
@@ -739,10 +838,18 @@ Result<CoreExpr, ParseError> {
             cur_ap_lhs = CoreExpr::Application(Box::new(cur_ap_lhs), Box::new(ap_rhs));
         }
 
-        Result::Ok(cur_ap_lhs)
+        Ok(cur_ap_lhs)
     }
 }
 
+/// General function for top-down parsing of binary operators with one lookahead.
+///
+/// `lhs_parse_fn` is first used to parse the left hand side of the binary operator.
+///
+/// `variable_bindings` maps a `CoreToken` that is expected to the `CoreVariable` that the operator
+/// corresponds to.
+///
+/// `rhs_parse_fn` is used to parse the right hand side of the in 
 fn parse_binop_at_precedence(mut cursor: &mut ParserCursor,
                              lhs_parse_fn: fn(&mut ParserCursor) -> Result<CoreExpr, ParseError>,
                              rhs_parse_fn: fn(&mut ParserCursor) -> Result<CoreExpr, ParseError>,
@@ -751,7 +858,7 @@ fn parse_binop_at_precedence(mut cursor: &mut ParserCursor,
     let lhs_expr : CoreExpr = try!(lhs_parse_fn(&mut cursor));
 
     let c = match cursor.peek() {
-        (_, None) => return Result::Ok(lhs_expr),
+        (_, None) => return Ok(lhs_expr),
         (_, Some(c)) => c
     };
 
@@ -764,7 +871,7 @@ fn parse_binop_at_precedence(mut cursor: &mut ParserCursor,
             (rhs, op_var)
         }
         else {
-            return Result::Ok(lhs_expr);
+            return Ok(lhs_expr);
         }
 
 
@@ -773,12 +880,16 @@ fn parse_binop_at_precedence(mut cursor: &mut ParserCursor,
     let ap_inner =
         CoreExpr::Application(Box::new(operator_variable), Box::new(lhs_expr));
 
-    Result::Ok(CoreExpr::Application(Box::new(ap_inner),
+    Ok(CoreExpr::Application(Box::new(ap_inner),
                                      Box::new(rhs_expr)))
 
 
 }
 
+
+/// ```haskell
+/// <mul_div_expr> := <application_expr> ("*" |  "/") <mul_div_expr>
+/// ```
 fn parse_mul_div(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
     parse_binop_at_precedence(cursor,
                               parse_application,
@@ -789,6 +900,9 @@ fn parse_mul_div(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> 
 }
 
 
+/// ```haskell
+/// <add_sub_expr> := <mul_div_expr> ("+" |  "-") <add_sub_expr>
+/// ```
 fn parse_add_sub(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
     parse_binop_at_precedence(cursor,
                               parse_mul_div,
@@ -798,6 +912,10 @@ fn parse_add_sub(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> 
                               ].iter().cloned().collect())
 }
 
+/// ```haskell
+/// <relop_expr> := <add_sub> | <add_sub> <relop> <relop_expr>;
+/// <relop> := "<" | "<=" | ">" | ">=" | "==" | "!="
+/// ``` 
 fn parse_relop(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
     parse_binop_at_precedence(cursor,
                               parse_add_sub,
@@ -814,7 +932,9 @@ fn parse_relop(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
 }
 
 
-//expr2 -> expr3 "&" expr2 | expr3
+/// ```haskell
+/// <and_expr> := <relop_expr> "&" <and_expr> | <relop_expr>
+/// ```
 fn parse_and(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
     parse_binop_at_precedence(cursor,
                               parse_relop,
@@ -824,7 +944,9 @@ fn parse_and(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
 
 }
 
-//expr1 -> expr2 "|" expr1 | expr1
+/// ```haskell
+/// <or_expr> := <and_expr> "|" <or_expr> | <or_expr>
+/// ```
 fn parse_or(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
     parse_binop_at_precedence(cursor,
                               parse_and,
@@ -836,6 +958,9 @@ fn parse_or(mut cursor: &mut ParserCursor) -> Result<CoreExpr, ParseError> {
 
 
 
+///```haskell
+/// <expr> := <or_expr> | "Let" let_expr
+///```
 fn parse_expr(mut c: &mut ParserCursor) ->
 Result<CoreExpr, ParseError> {
     match c.peek() {
@@ -845,6 +970,9 @@ Result<CoreExpr, ParseError> {
 }
 
 
+///```haskell
+/// supercombinator := <name: Ident> (<args : Ident>)* "=" <expr>
+///```
 fn parse_supercombinator(mut c: &mut ParserCursor) ->
 Result<SupercombDefn, ParseError> {
 
@@ -875,7 +1003,7 @@ Result<SupercombDefn, ParseError> {
 
     let sc_body = try!(parse_expr(&mut c));
 
-    Result::Ok(SupercombDefn{
+    Ok(SupercombDefn{
         name: sc_name,
         args: sc_args,
         body: sc_body
@@ -883,6 +1011,7 @@ Result<SupercombDefn, ParseError> {
 
 }
 
+/// Try to convert the given string to a [CoreExpr](../ir/enum.CoreExpr.html)
 pub fn string_to_expr(string: &str) -> Result<CoreExpr, ParseError> {
     let tokens : Vec<(Range, CoreToken)> = try!(tokenize(string));
     let mut cursor: ParserCursor = ParserCursor::new(tokens);
@@ -890,6 +1019,7 @@ pub fn string_to_expr(string: &str) -> Result<CoreExpr, ParseError> {
     parse_expr(&mut cursor)
 }
 
+/// Try to convert the given string to a [SupercombDefn](../ir/struct.SupercombDefn.html)
 pub fn string_to_sc_defn(string: &str) -> Result<SupercombDefn, ParseError> {
     let tokens : Vec<(Range, CoreToken)> = try!(tokenize(string));
     let mut cursor: ParserCursor = ParserCursor::new(tokens);
@@ -898,6 +1028,7 @@ pub fn string_to_sc_defn(string: &str) -> Result<SupercombDefn, ParseError> {
 
 
 
+/// Try to convert the given string to a [CoreProgram](../ir/type.CoreProgram.html)
 pub fn string_to_program(string: &str) -> Result<CoreProgram, ParseError> {
 
     let tokens : Vec<(Range, CoreToken)> = try!(tokenize(string));
@@ -934,5 +1065,5 @@ pub fn string_to_program(string: &str) -> Result<CoreProgram, ParseError> {
         }
 
     }
-    Result::Ok(program)
+    Ok(program)
 }
