@@ -17,7 +17,7 @@ lazily evaluate programming language evaluates.
 - [Interpreter Options and Usage](#interpreter-options)
 - [Executing `.tim` files](#executing-tim-files)
 - [Language Introduction](#language-introduction)
-    - [Top level / Supercombinators](#top-level-supercombinators)
+    - [Top level / Supercombinators](#top-level--supercombinators)
     - [The `main` value](#the-main-value)
     - [Expressions](#expressions)
     - [Lack of Lambda and Case](#lack-of-lambda-and-case)
