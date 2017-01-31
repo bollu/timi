@@ -194,13 +194,15 @@ machine. More is talked about this in the section [Lack of Lambda and Case](#lac
     ```haskell
     > let y = 10; x = 20 in x + y
     ...
-    === FINAL: 30 ===
+    === Final Value: 30 ===
     ```
 
     ##### Example: mututally recursive `let`
     ```haskell
     # keep in mind that K x y = x
     > let x = K 10 y; y = K x x in x
+    ...
+    === Final Value: 10 ===
     ```
     Even though `x` and `y` are defined in terms of each other,
     they do not refer to each other _directly_. Rather, they refer to
@@ -214,7 +216,12 @@ machine. More is talked about this in the section [Lack of Lambda and Case](#lac
     **NOTE:** Let binds *strictly*, not lazily, so this code _will not work_
     ```haskell
     > let y = x; x = y in 10
+    *** ITERATION: 1
+    step error: variable contains cyclic definition: y
     ```
+    Here, it is impossible to even resolve `y` and `x`. So, this will
+    be rejected by the interpreter.
+
 - **Function application**
 
     ```haskell

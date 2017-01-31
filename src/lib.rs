@@ -5,7 +5,7 @@
 //!
 //! This implementation comes with a parser for the language called as `Core`,
 //! along with an interpreter for `Core`.
-//! This is based on [Implementing Functional Languages, a tutorial](FIXME: add link)
+//! This is based on [Implementing Functional Languages, a tutorial](http://research.microsoft.com/en-us/um/people/simonpj/Papers/pj-lester-book/)
 //!
 //!
 //! ### Example - Creating [`Machine`](machine/struct.Machine.html) instance from a string

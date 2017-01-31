@@ -1,4 +1,4 @@
-//! Machine that performs interpretation. 
+// Machine that performs interpretation. 
 //! The machine state is formed out of 4 components: `(Stack, Heap, Dump, Globals)`
 extern crate ansi_term;
 
