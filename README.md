@@ -14,7 +14,7 @@ lazily evaluate programming language evaluates.
 
 # Table of Contents
 - [Quickstart](#quickstart)
-- [Interpreter Options and Usage](#interpreter-options)
+- [Interpreter Options and Usage](#interpreter-options-and-usage)
 - [Executing `.tim` files](#executing-tim-files)
 - [Language Introduction](#language-introduction)
     - [Top level / Supercombinators](#top-level--supercombinators)
@@ -28,6 +28,7 @@ lazily evaluate programming language evaluates.
     - [Primitives](#primitives)
     - [How does evaluation provide laziness?](#how-does-evaluation-provide-laziness)
     - [The Dump](#the-dump)
+- [Example Programs](#example-programs)
 - [Roadmap](#roadmap)
 - [Design Decisions](#design-decisions)
 - [Things Learnt](#things-learnt)
@@ -885,6 +886,11 @@ Dump
 Now that we have a simple expression, evaluation proceeds as usual, ending
 with the machine evaluating `1 + 3` on seeing `+` at the top of the stack.
 
+
+## Example Programs
+
+- every test case is an example program,
+  [found here (link)](https://github.com/bollu/timi/blob/master/tests/test_machine.rs).
 
 ## Roadmap
 - [x] Mark 1 (template instantiation)
