@@ -263,9 +263,7 @@ machine. More is talked about this in the section [Lack of Lambda and Case](#lac
     <arg1> primop <arg2>
     ```
 
-    Primitive operation on integers.
-
-    The following operations are supported:
+    Primitive operation on integers. The following operations are supported:
 
       - Arithmetic
         - `+`: addition
