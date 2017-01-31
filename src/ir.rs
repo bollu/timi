@@ -1,3 +1,6 @@
+//! Internal Representation (IR) of the machine. Contains the data
+//! representation used by the machine.
+//!
 //! The expression type that is parsed by the Parser is held in `CoreExpr`
 //!
 //! a Core program ([`CoreProgram`](type.CoreProgram.html)) is a collection

@@ -1,3 +1,4 @@
+//! Frontend of the interpreter. Tokenization & Parsing is handled here.
 #[warn(missing_docs)]
 extern crate ansi_term;
 extern crate rand;
